@@ -1,0 +1,152 @@
+rules_version = '2';
+
+// 親子進度與點數：Firestore 安全規則（第一階段）
+//
+// 身分模型（方案 A：匿名登入＋裝置配對）
+// - 每台裝置用 Firebase 匿名登入取得一個 uid。
+// - families/{fid}/devices/{uid} 存在 = 這台裝置已被媽媽配對。
+//     isMom: true      → 媽媽裝置，可讀寫全部
+//     kids: ['kidA']   → 小孩裝置，只能讀寫清單內小孩的資料
+// - 第一台裝置可在「家庭尚未建立」時，以單一批次建立家庭並成為媽媽裝置。
+// - 媽媽 PIN 只是媽媽裝置上的「介面鎖」；真正的權限由裝置配對決定。
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    match /families/{fid} {
+
+      function signedIn() { return request.auth != null; }
+      function devPath() { return /databases/$(database)/documents/families/$(fid)/devices/$(request.auth.uid); }
+      function famPath() { return /databases/$(database)/documents/families/$(fid); }
+      function paired() { return signedIn() && exists(devPath()); }
+      function isMom() { return paired() && get(devPath()).data.isMom == true; }
+      function canKid(kidId) { return isMom() || (paired() && kidId in get(devPath()).data.kids); }
+      // 建立家庭的那一個批次寫入（家庭文件原本不存在，寫入後 setupBy 是自己）
+      function inSetup() {
+        return signedIn() && !exists(famPath())
+          && getAfter(famPath()).data.setupBy == request.auth.uid;
+      }
+      function isDate(s) { return s is string && s.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$'); }
+      function isText(s, max) { return s is string && s.size() <= max; }
+
+      // 家庭文件本身只記錄是誰建立的；任何登入者都可以查「家庭是否存在」
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['setupBy', 'createdAt'])
+        && request.resource.data.setupBy == request.auth.uid;
+      allow update, delete: if false;
+
+      // ---------- 裝置 ----------
+      match /devices/{uid} {
+        allow get: if (signedIn() && request.auth.uid == uid) || isMom();
+        allow list: if isMom();
+        allow create: if isMom()
+          || (signedIn() && uid == request.auth.uid && inSetup() && request.resource.data.isMom == true);
+        allow update, delete: if isMom();
+      }
+
+      // ---------- 配對申請（未配對裝置只能申請自己的） ----------
+      match /pairRequests/{uid} {
+        allow get: if (signedIn() && request.auth.uid == uid) || isMom();
+        allow list: if isMom();
+        allow create, update: if signedIn() && request.auth.uid == uid && !paired()
+          && request.resource.data.keys().hasOnly(['code', 'label', 'createdAt'])
+          && isText(request.resource.data.code, 8)
+          && isText(request.resource.data.label, 40);
+        allow delete: if isMom() || (signedIn() && request.auth.uid == uid);
+      }
+
+      // ---------- 成員（使用者）、設定 ----------
+      match /members/{memberId} {
+        allow read: if paired();
+        allow create: if isMom() || inSetup();
+        allow update, delete: if isMom();
+      }
+      match /meta/{docId} {
+        allow read: if paired();
+        allow create: if isMom() || inSetup();
+        allow update, delete: if isMom();
+      }
+      // 媽媽 PIN 雜湊：小孩裝置讀不到
+      match /private/{docId} {
+        allow read: if isMom();
+        allow create: if isMom() || inSetup();
+        allow update, delete: if isMom();
+      }
+
+      // ---------- 進度（任務） ----------
+      function kidTaskShape(d) {
+        return d.keys().hasOnly(['kidId', 'date', 'title', 'note', 'points', 'createdBy', 'status', 'momNote', 'createdAt', 'updatedAt'])
+          && d.createdBy == 'kid' && d.status == 'pending' && d.points == 0
+          && isDate(d.date) && d.title is string && d.title.size() > 0 && d.title.size() <= 100
+          && isText(d.note, 500);
+      }
+      match /tasks/{taskId} {
+        allow read: if isMom() || canKid(resource.data.kidId);
+        // 小孩只能新增「待媽媽確認」、0 點的進度
+        allow create: if isMom()
+          || (canKid(request.resource.data.kidId) && kidTaskShape(request.resource.data) && request.resource.data.momNote == '');
+        // 小孩只能修改／刪除自己排、尚未確認的進度，且不能改點數、狀態、媽媽的建議
+        allow update: if isMom()
+          || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending'
+              && kidTaskShape(request.resource.data)
+              && request.resource.data.kidId == resource.data.kidId
+              && request.resource.data.momNote == resource.data.momNote);
+        allow delete: if isMom()
+          || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending');
+      }
+
+      // ---------- 每日固定事項 ----------
+      match /routines/{routineId} {
+        allow read: if isMom() || canKid(resource.data.kidId);
+        allow write: if isMom();
+      }
+
+      // ---------- 每日清單項目 ----------
+      // 小孩裝置可以「補建」清單項目，但標題以外的關鍵欄位（點數、來源）必須和媽媽設定的來源一致。
+      function sourceOk(d) {
+        return (d.sourceType == 'routine'
+                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.kidId == d.kidId
+                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.points == d.points
+                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.active == true)
+          || (d.sourceType == 'task'
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.kidId == d.kidId
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.points == d.points
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.date == d.date
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.status == 'approved');
+      }
+      match /items/{itemId} {
+        // 讀取不存在的文件也允許（交易中用來判斷是否已建立）
+        allow get: if paired() && (resource == null || isMom() || canKid(resource.data.kidId));
+        allow list: if isMom() || canKid(resource.data.kidId);
+        allow create: if isMom()
+          || (canKid(request.resource.data.kidId)
+              && request.resource.data.keys().hasOnly(['kidId', 'date', 'sourceType', 'sourceId', 'title', 'points', 'order', 'done', 'doneAt', 'review', 'returnNote', 'createdAt'])
+              && itemId == request.resource.data.kidId + '_' + request.resource.data.date + '_' + request.resource.data.sourceId
+              && isDate(request.resource.data.date)
+              && request.resource.data.done == false && request.resource.data.review == 'none'
+              && sourceOk(request.resource.data));
+        // 小孩只能勾選／取消勾選，不能自己核可；已入帳的不能再改
+        allow update: if isMom()
+          || (canKid(resource.data.kidId) && resource.data.review != 'approved'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'doneAt', 'review'])
+              && ((request.resource.data.done == true && request.resource.data.review == 'pending')
+                  || (request.resource.data.done == false && request.resource.data.review == 'none')));
+        allow delete: if isMom();
+      }
+
+      // ---------- 點數流水帳：只有媽媽能新增，任何人都不能修改或刪除 ----------
+      match /ledger/{entryId} {
+        allow get: if paired() && (resource == null || isMom() || canKid(resource.data.kidId));
+        allow list: if isMom() || canKid(resource.data.kidId);
+        allow create: if isMom()
+          && request.resource.data.amount is int
+          && request.resource.data.type in ['task', 'bonus', 'adjust', 'redeem']
+          && request.resource.data.kidId is string;
+        allow update, delete: if false;
+      }
+
+      // （第二階段會在這裡加入 rewards、redemptions、threads/messages 的規則）
+    }
+  }
+}

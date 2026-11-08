@@ -1,0 +1,145 @@
+import { configured, auth, signInAnonymously, onAuthStateChanged } from './firebase.js';
+import { state, setState, onState, allowedProfiles, isMom, KIDS } from './state.js';
+import { parseRoute, go } from './router.js';
+import { watchMyDevice } from './store/devices.js';
+import { watchMembers, watchSettings } from './store/family.js';
+import { showError, esc } from './ui.js';
+import { mountShell } from './views/shell.js';
+import { mountPair } from './views/pair.js';
+import { mountRoles } from './views/roles.js';
+import { mountHome } from './views/home.js';
+import { mountChecklist } from './views/checklist.js';
+import { mountSchedule } from './views/schedule.js';
+import { mountPoints } from './views/points.js';
+import { mountSettings } from './views/settings.js';
+
+const appEl = document.getElementById('app');
+const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, points: mountPoints, settings: mountSettings };
+
+let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
+let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }
+let view = { key: null, cleanup: null };
+let familyUnsubs = [];
+let autoEntered = false;
+
+/** 選擇身分後進入 */
+export function enterProfile(p) {
+  setState({ profile: p });
+  autoEntered = true;
+  const kid = p === 'mom' ? (localStorage.getItem('kp.momKid') || 'kidA') : p;
+  go(`/k/${kid}/home`);
+}
+
+function startFamilyWatchers() {
+  stopFamilyWatchers();
+  familyUnsubs = [
+    watchMembers((members) => setState({ members, membersReady: true }), (e) => { showError(e, '讀取成員'); setState({ membersReady: true }); }),
+    watchSettings((s) => setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s } }), (e) => showError(e, '讀取設定'))
+  ];
+}
+function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; }
+
+/** 名字、頭像、顏色改變時，畫面要重畫 */
+const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color]));
+
+let devUnsub = null;
+function watchDevice(uid) {
+  devUnsub && devUnsub();
+  devUnsub = watchMyDevice(uid, (dev) => {
+    if (dev && !state.device) startFamilyWatchers();
+    if (!dev) stopFamilyWatchers();
+    setState(dev ? { device: dev } : { device: null, profile: null });
+  }, (e) => { showError(e, '讀取裝置'); setState({ device: null }); });
+}
+
+function clearView() { view.cleanup && view.cleanup(); view = { key: null, cleanup: null }; }
+function clearShell() { clearView(); shell && shell.cleanup(); shell = null; }
+function clearPage() { page.cleanup && page.cleanup(); page = { key: null, cleanup: null }; }
+
+function showPage(key, mountFn) {
+  if (page.key === key) return;
+  clearShell(); clearPage();
+  appEl.innerHTML = '';
+  page = { key, cleanup: mountFn(appEl) || null };
+}
+
+function render() {
+  const route = parseRoute();
+  if (!state.authReady || state.device === undefined || (state.device && !state.membersReady)) {
+    return showPage('splash', (el) => { el.innerHTML = `<div class="splash"><div class="splash-logo">⭐</div><p>載入中…</p></div>`; });
+  }
+  if (!state.device) return showPage('pair', mountPair);
+
+  const allowed = allowedProfiles();
+  if (state.profile && !allowed.includes(state.profile)) return setState({ profile: null });
+
+  if (!state.profile || route.name === 'roles') {
+    if (!state.profile && !autoEntered && allowed.length === 1) return enterProfile(allowed[0]);
+    if (route.name !== 'roles') return go('/');
+    return showPage('roles:' + allowed.join() + membersSig(), (el) => mountRoles(el, { enterProfile }));
+  }
+
+  // ---- 已選擇身分：權限保護 ----
+  if (route.name === 'settings' && !isMom()) return go(`/k/${state.profile}/home`);
+  if (route.name !== 'settings') {
+    if (!isMom() && route.kid !== state.profile) return go(`/k/${state.profile}/${VIEWS[route.name] ? route.name : 'home'}`);
+    if (!KIDS.includes(route.kid)) return go(`/k/kidA/home`);
+    if (!VIEWS[route.name]) return go(`/k/${route.kid}/home`);
+    if (isMom()) localStorage.setItem('kp.momKid', route.kid);
+  }
+
+  const shellKey = `${state.profile}|${state.device.isMom}|${(state.device.kids || []).join()}|${membersSig()}`;
+  if (!shell || shell.key !== shellKey) {
+    clearPage(); clearShell();
+    appEl.innerHTML = '';
+    shell = mountShell(appEl);
+    shell.key = shellKey;
+    page.key = 'shell';
+  }
+  shell.setRoute(route);
+
+  const viewKey = location.hash + membersSig();
+  if (view.key !== viewKey) {
+    clearView();
+    shell.viewEl.innerHTML = '';
+    shell.viewEl.scrollTop = 0;
+    window.scrollTo(0, 0);
+    view = { key: viewKey, cleanup: VIEWS[route.name](shell.viewEl, route) || null };
+  } else {
+    shell.refresh();
+  }
+}
+
+function renderNotConfigured() {
+  appEl.innerHTML = `
+    <div class="center-page"><div class="card narrow">
+      <h1>⚙️ 尚未設定 Firebase</h1>
+      <p>請打開 <code>config.js</code>，貼上 Firebase 專案的設定後重新整理。</p>
+      <p class="muted">詳細步驟請看 <code>docs/SETUP.md</code>。<br>開發測試可在網址後加上 <code>?emulator</code> 改用本機模擬器。</p>
+    </div></div>`;
+}
+
+function boot() {
+  if ('serviceWorker' in navigator && !location.search.includes('nosw')) {
+    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
+  }
+  if (!configured) return renderNotConfigured();
+
+  onAuthStateChanged(auth, (user) => {
+    if (!user) {
+      signInAnonymously(auth).catch((e) => {
+        appEl.innerHTML = `<div class="center-page"><div class="card narrow"><h1>無法登入</h1>
+          <p>${esc(e.message)}</p><p class="muted">請確認 Firebase 已啟用「匿名登入」。</p></div></div>`;
+      });
+      return;
+    }
+    if (state.uid === user.uid) return;
+    setState({ uid: user.uid, authReady: true });
+    watchDevice(user.uid);
+  });
+  window.addEventListener('hashchange', render);
+  onState(render);
+  render();
+}
+
+boot();
