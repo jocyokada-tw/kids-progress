@@ -359,3 +359,11 @@
 .subj-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .subj-row input[type=text] { flex: 1; min-height: var(--tap); padding: 8px 12px; border: 2px solid var(--line); border-radius: 12px; font-size: 17px; min-width: 0; }
 .subj-row input[type=color] { width: 52px; height: var(--tap); border: 2px solid var(--line); border-radius: 12px; padding: 2px; background: #fff; flex: none; }
+
+/* ===== 本週待安排 ===== */
+.tray { border: 2px dashed color-mix(in srgb, var(--kid) 55%, white); }
+.tray h2 { display: flex; align-items: center; gap: 8px; }
+.tray-week { font-weight: 700; font-size: .9rem; color: var(--muted); margin: 8px 0 6px; }
+.tray-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.tray-item.is-overdue { opacity: .7; outline: 2px dashed var(--bad); outline-offset: -2px; }
+.todo-pill.bad { background: var(--bad-soft); color: var(--bad); }

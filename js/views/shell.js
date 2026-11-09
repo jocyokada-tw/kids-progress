@@ -1,10 +1,11 @@
 import { state, isMom, KIDS, member, memberColor } from '../state.js';
 import { go } from '../router.js';
 import { esc, showError } from '../ui.js';
-import { watchPendingTasks } from '../store/tasks.js';
+import { watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
 import { watchPendingItems } from '../store/checklist.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { watchThread, watchMessages, unreadCount } from '../store/messages.js';
+import { todayStr } from '../utils/date.js';
 
 const TABS = [
   { name: 'home', icon: '🏠', label: '首頁' },
@@ -29,7 +30,7 @@ export function mountShell(root) {
   let route = null;
 
   // 即時顯示待處理數量：媽媽看兩個小孩的待確認／待核可／兌換申請／未讀留言；小孩只看自己的未讀留言
-  const badges = Object.fromEntries(KIDS.map((k) => [k, { tasks: 0, items: 0, redeem: 0, unread: 0 }]));
+  const badges = Object.fromEntries(KIDS.map((k) => [k, { tasks: 0, items: 0, redeem: 0, unread: 0, toPlan: 0 }]));
   const unsubs = [];
   const me = isMom() ? 'mom' : 'kid';
   for (const k of (isMom() ? KIDS : [state.profile])) {
@@ -37,6 +38,14 @@ export function mountShell(root) {
     const upd = () => { badges[k].unread = unreadCount(msgs, thread, me); draw(); };
     unsubs.push(watchThread(k, (t) => { thread = t; upd(); }, (e) => showError(e, '讀取留言')));
     unsubs.push(watchMessages(k, (m) => { msgs = m; upd(); }, (e) => showError(e, '讀取留言'), 50));
+    if (!isMom()) {
+      // 小孩：本週還沒排日期的進度
+      unsubs.push(watchUnscheduled(k, (l) => {
+        const today = todayStr();
+        badges[k].toPlan = l.filter((t) => t.week <= today && t.weekEnd >= today).length;
+        draw();
+      }, (e) => showError(e, '讀取本週進度')));
+    }
     if (isMom()) {
       unsubs.push(watchPendingTasks(k, (l) => { badges[k].tasks = l.length; draw(); }, (e) => showError(e, '讀取待確認')));
       unsubs.push(watchPendingItems(k, (l) => { badges[k].items = l.length; draw(); }, (e) => showError(e, '讀取待核可')));
@@ -72,7 +81,7 @@ export function mountShell(root) {
       let n = 0;
       const b = badges[isMom() ? kid : state.profile] || {};
       if (isMom() && t.name === 'checklist') n = b.items;
-      if (isMom() && t.name === 'schedule') n = b.tasks;
+      if (t.name === 'schedule') n = isMom() ? b.tasks : b.toPlan;
       if (isMom() && t.name === 'points') n = b.redeem;
       if (t.name === 'messages') n = b.unread;
       return `<button class="tab ${route.name === t.name ? 'active' : ''}" data-go="${path}">

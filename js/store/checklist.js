@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, getDoc, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs } from './paths.js';
 import { watchRoutines } from './routines.js';
 import { watchTasksOnDate } from './tasks.js';
@@ -78,6 +78,12 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
   return () => unsubs.forEach((u) => u());
 }
 
+/** 讀一次某個清單項目（不存在回傳 null） */
+export async function getItemOnce(kidId, date, sourceId) {
+  const s = await getDoc(fdoc('items', itemId(kidId, date, sourceId)));
+  return s.exists() ? s.data() : null;
+}
+
 export function watchPendingItems(kidId, cb, onErr) {
   const q = query(fcol('items'), where('kidId', '==', kidId), where('review', '==', 'pending'));
   return onSnapshot(q, (s) => cb(docs(s)), onErr);
@@ -106,7 +112,11 @@ export async function approveItem(id) {
     const it = s.data();
     if (it.review === 'approved') return;
     const l = await tx.get(lref);
+    // 進度入帳後鎖定日期（本週進度不能再改天）
+    const tref = it.sourceType === 'task' ? fdoc('tasks', it.sourceId) : null;
+    const t = tref ? await tx.get(tref) : null;
     tx.update(ref, { done: true, review: 'approved', returnNote: '', approvedAt: serverTimestamp() });
+    if (t && t.exists()) tx.update(tref, { itemApproved: true });
     if (!l.exists()) {
       tx.set(lref, {
         kidId: it.kidId, amount: it.points, type: 'task', title: it.title, date: it.date,

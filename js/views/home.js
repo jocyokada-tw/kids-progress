@@ -3,7 +3,7 @@ import { esc, showError } from '../ui.js';
 import { go } from '../router.js';
 import { watchLedger } from '../store/ledger.js';
 import { watchPendingItems } from '../store/checklist.js';
-import { watchTasksRange, watchPendingTasks } from '../store/tasks.js';
+import { watchTasksRange, watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
 import { todayStr, addDays, range, labelMD, labelRelative } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
 import { watchEvents, eventsOn } from '../store/events.js';
@@ -60,7 +60,7 @@ export function mountHome(el, { kid }) {
     }).join('');
     $('#month').innerHTML = rows ? `<ul class="agenda">${rows}</ul>` : '<p class="empty">接下來一個月還沒有安排 ☀️</p>';
   }
-  let pendingItems = [], pendingTasks = [], pendingRedeem = [];
+  let pendingItems = [], pendingTasks = [], pendingRedeem = [], unscheduled = [];
   const drawPending = () => {
     const pts = pendingItems.reduce((s, i) => s + (i.points || 0), 0);
     $('#pendingPts').textContent = pts ? `另有 ${pts} 點等待媽媽核可` : '';
@@ -69,7 +69,14 @@ export function mountHome(el, { kid }) {
       if (pendingItems.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/checklist">✅ ${pendingItems.length} 項待核可</button>`);
       if (pendingTasks.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/schedule">📅 ${pendingTasks.length} 項進度待確認</button>`);
       if (pendingRedeem.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/points">🎁 ${pendingRedeem.length} 項兌換申請</button>`);
+      const overdue = unscheduled.filter((t) => t.weekEnd < today).length;
+      const open = unscheduled.length - overdue;
+      if (open) parts.push(`<button class="todo-pill" data-go="/k/${kid}/schedule">📦 ${open} 項本週進度還沒排</button>`);
+      if (overdue) parts.push(`<button class="todo-pill bad" data-go="/k/${kid}/schedule">⚠️ ${overdue} 項逾期未安排</button>`);
       $('#momTodo').innerHTML = parts.length ? `<div class="todo-row">${parts.join('')}</div>` : '';
+    } else {
+      const open = unscheduled.filter((t) => t.weekEnd >= today && t.week <= today).length;
+      $('#momTodo').innerHTML = open ? `<div class="todo-row"><button class="todo-pill" data-go="/k/${kid}/schedule">📦 本週還有 ${open} 項進度要安排</button></div>` : '';
     }
   };
 
@@ -85,6 +92,7 @@ export function mountHome(el, { kid }) {
     watchTasksRange(kid, today, addDays(today, 30), (t) => { tasks = t; drawAgenda(); }, (e) => showError(e, '讀取行程')),
     watchEvents(kid, (list) => { events = list; drawAgenda(); }, (e) => showError(e, '讀取課程'))
   ];
+  unsubs.push(watchUnscheduled(kid, (l) => { unscheduled = l; drawPending(); }, (e) => showError(e)));
   if (isMom()) {
     unsubs.push(watchPendingTasks(kid, (l) => { pendingTasks = l; drawPending(); }, (e) => showError(e)));
     unsubs.push(watchPendingRedemptions(kid, (l) => { pendingRedeem = l; drawPending(); }, (e) => showError(e)));

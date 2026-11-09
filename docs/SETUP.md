@@ -127,7 +127,7 @@ npx firebase-tools emulators:start --project demo-kids
 
 然後打開 `http://127.0.0.1:5173/?emulator`。
 
-安全規則自動測試（25 項，涵蓋配對、任務、清單、流水帳、課程、兌換、留言的權限）：
+安全規則自動測試（28 項，涵蓋配對、任務、本週進度、清單、流水帳、課程、兌換、留言的權限）：
 
 ```bash
 cd tests && npm install && npm run test:rules

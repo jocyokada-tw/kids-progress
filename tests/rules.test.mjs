@@ -248,3 +248,34 @@ test('媽媽核可兌換時寫入負數流水帳', async () => {
   await assertSucceeds(setDoc(doc(db('mom'), F, 'ledger/redeem_q1'), { kidId: 'kidA', amount: -20, type: 'redeem', title: '兌換', createdAt: serverTimestamp() }));
   await assertFails(setDoc(doc(db('a'), F, 'ledger/redeem_q2'), { kidId: 'kidA', amount: 20, type: 'redeem', title: '兌換', createdAt: serverTimestamp() }));
 });
+
+// ---------- 本週進度 ----------
+async function seedWeekly(over = {}) {
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), F, 'tasks/w1'), {
+    kidId: 'kidA', kind: 'weekly', week: '2026-11-09', weekEnd: '2026-11-15', date: '', title: '數學習作', note: '', subject: 'math',
+    points: 3, createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false, ...over
+  }));
+}
+test('本週進度：小孩可以排到同一週的某一天、改天、放回待安排', async () => {
+  await seedWeekly();
+  const ref = doc(db('a'), F, 'tasks/w1');
+  await assertSucceeds(updateDoc(ref, { date: '2026-11-11', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDocs(query(collection(db('a'), F, 'tasks'), where('kidId', '==', 'kidA'), where('date', '==', ''))));
+});
+test('本週進度：不能排到別週、不能改點數或內容、入帳後不能改', async () => {
+  await seedWeekly();
+  const ref = doc(db('a'), F, 'tasks/w1');
+  await assertFails(updateDoc(ref, { date: '2026-11-16' }));
+  await assertFails(updateDoc(ref, { date: '2026-11-08' }));
+  await assertFails(updateDoc(ref, { date: 'tomorrow' }));
+  await assertFails(updateDoc(ref, { points: 30 }));
+  await assertFails(updateDoc(ref, { title: '改', date: '2026-11-10' }));
+  await assertFails(updateDoc(ref, { week: '2026-11-16', weekEnd: '2026-11-22' }));
+  await seedWeekly({ date: '2026-11-10', itemApproved: true });
+  await assertFails(updateDoc(ref, { date: '2026-11-12' }));
+});
+test('一般進度（非本週）小孩仍然不能改日期', async () => {
+  await assertFails(updateDoc(doc(db('a'), F, 'tasks/t1'), { date: '2026-11-09' }));
+});

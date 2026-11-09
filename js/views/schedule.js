@@ -1,6 +1,7 @@
 import { state, isMom, memberName, subjects, subjectOf, OTHER_SUBJECT } from '../state.js';
 import { esc, modal, toast, showError, chipChecks, chipRadios, subjectChips, confirmDialog } from '../ui.js';
-import { watchTasksRange, createTasks, kidUpdateTask, momSaveTask, deleteTask } from '../store/tasks.js';
+import { watchTasksRange, createTasks, kidUpdateTask, momSaveTask, deleteTask, watchUnscheduled, createWeeklyTask, scheduleWeekly, moveWeeklyTo } from '../store/tasks.js';
+import { getItemOnce } from '../store/checklist.js';
 import { watchEvents, eventsOn, saveEvent, skipEventOn, deleteEvent } from '../store/events.js';
 import { todayStr, addDays, weekStart, range, labelMD, weekday, isDateStr, WEEKDAYS } from '../utils/date.js';
 import { TASK_STATUS } from './home.js';
@@ -16,6 +17,7 @@ export function mountSchedule(el, { kid }) {
   let start = weekStart(today);
   let tasks = null;
   let events = [];
+  let unscheduled = [];
   let unsubTasks = null;
   const mom = isMom();
 
@@ -28,6 +30,7 @@ export function mountSchedule(el, { kid }) {
     unsubTasks = watchTasksRange(kid, start, addDays(start, span - 1), (list) => { tasks = list; draw(); }, (e) => showError(e, '讀取排程'));
   }
   const unsubEvents = watchEvents(kid, (l) => { events = l; draw(); }, (e) => showError(e, '讀取課程'));
+  const unsubUnsched = watchUnscheduled(kid, (l) => { unscheduled = l; draw(); }, (e) => showError(e, '讀取本週進度'));
 
   function draw() {
     const ds = days();
@@ -37,7 +40,8 @@ export function mountSchedule(el, { kid }) {
       <div class="page-head">
         <h1>📅 ${esc(memberName(kid))}的行程</h1>
         <div class="btn-row">
-          ${mom ? `<button class="btn btn-ghost" data-act="newEvent" data-date="${inRange ? today : start}">＋ 課程</button>` : ''}
+          ${mom ? `<button class="btn btn-ghost" data-act="newEvent" data-date="${inRange ? today : start}">＋ 課程</button>
+            <button class="btn btn-ghost" data-act="newWeekly" data-date="${inRange ? today : start}">＋ 本週進度</button>` : ''}
           <button class="btn btn-primary" data-act="new" data-date="${inRange ? today : start}">＋ 進度</button>
         </div>
       </div>
@@ -53,6 +57,7 @@ export function mountSchedule(el, { kid }) {
       </div>
       <div class="legend">${subjects().map((s) => `<span class="legend-item"><i class="dot" style="background:${esc(s.color)}"></i>${esc(s.name)}</span>`).join('')}
         <span class="legend-item"><i class="dot ring"></i>課程（無點數）</span></div>
+      ${trayHtml(end)}
       ${mom ? '' : '<p class="muted small hint">你可以自己安排進度，送出後會等媽媽確認喔！</p>'}
       <div class="week-grid span-${span}">${ds.map(dayCard).join('')}</div>`;
   }
@@ -74,10 +79,119 @@ export function mountSchedule(el, { kid }) {
               <span class="event-time">🕒 ${esc(timeRange(e))}</span><span class="task-title">${esc(e.title)}</span></button></li>`).join('')}
             ${list.map((t) => `<li><button class="task task-${t.status}" style="--s:${esc(subjectOf(t.subject).color)}" data-act="open" data-id="${t.id}">
               <span class="task-title">${esc(t.title)}</span>
-              <span class="task-meta"><span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
+              <span class="task-meta">${t.kind === 'weekly' ? '<span class="tag">📦 本週</span>' : ''}<span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
             </button></li>`).join('')}
           </ul>`}
       </div>`;
+  }
+
+  // ---------- 本週進度（待安排） ----------
+  const isOverdue = (t) => t.weekEnd < today;
+  function trayHtml(end) {
+    const list = unscheduled.filter((t) => isOverdue(t) || (t.week <= end && t.weekEnd >= start));
+    if (!list.length) return '';
+    const byWeek = new Map();
+    list.forEach((t) => { if (!byWeek.has(t.week)) byWeek.set(t.week, []); byWeek.get(t.week).push(t); });
+    return `
+      <section class="card tray">
+        <h2>📦 ${mom ? '還沒排日期的本週進度' : '本週待安排'} <span class="badge">${list.length}</span></h2>
+        <p class="muted small">${mom ? '孩子會自己排到這週的某一天；你也可以直接指定。' : '點一下，選這週要做的那一天！'}</p>
+        ${[...byWeek].map(([wk, ts]) => `
+          <div class="tray-week">${isOverdue(ts[0]) ? '<span class="tag tag-bad">逾期未安排</span>' : ''} ${labelMD(wk)} – ${labelMD(ts[0].weekEnd)}</div>
+          <div class="tray-items">${ts.map((t) => `
+            <button class="task tray-item ${isOverdue(t) ? 'is-overdue' : ''}" style="--s:${esc(subjectOf(t.subject).color)}" data-act="tray" data-id="${t.id}">
+              <span class="task-title">${esc(t.title)}</span>
+              <span class="task-meta"><span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}</span>
+            </button>`).join('')}</div>`).join('')}
+      </section>`;
+  }
+
+  const weekDays = (t) => range(t.week, 7);
+
+  async function newWeekly(date) {
+    const thisWeek = weekStart(date < today ? today : date);
+    const weeks = [thisWeek, addDays(thisWeek, 7)].map((w) => ({ value: w, label: `${w === weekStart(today) ? '本週' : w === addDays(weekStart(today), 7) ? '下週' : ''} ${labelMD(w)}–${labelMD(addDays(w, 6))}` }));
+    const r = await modal({
+      title: '新增本週進度',
+      html: `
+        <p class="muted small">只訂內容和點數，由孩子自己排到這週的某一天。</p>
+        <div class="field"><span>哪一週</span>${chipRadios('week', weeks, thisWeek)}</div>
+        <div class="field"><span>科目</span>${subjectChips('subject', subjectList(), '')}</div>
+        <label class="field"><span>要做什麼？</span><input name="title" maxlength="60" placeholder="例如：數學習作 p.12–20"></label>
+        <label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${state.settings.defaultTaskPoints ?? 1}"></label>
+        <label class="field"><span>說明（選填）</span><textarea name="note" rows="2" maxlength="200"></textarea></label>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'more', label: '新增並繼續' }, { id: 'ok', label: '新增', kind: 'primary' }],
+      validate: (id, d) => {
+        if (id === 'cancel') return null;
+        if (!d.title) return '請輸入內容';
+        if (!(Number(d.points) >= 0)) return '點數必須是 0 以上的數字';
+        return null;
+      }
+    });
+    if (r.id === 'cancel') return;
+    try {
+      await createWeeklyTask(kid, r.data.week, addDays(r.data.week, 6), { title: r.data.title, note: r.data.note, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0) });
+      toast('已新增本週進度 📦', 'ok');
+      if (r.id === 'more') newWeekly(r.data.week);
+    } catch (e) { showError(e, '新增失敗'); }
+  }
+
+  /** 選一天（本週進度用）。minDate 之前的日子不能選 */
+  async function pickDay(t, minDate, extraButtons = []) {
+    const opts = weekDays(t).filter((d) => d >= minDate).map((d) => ({ value: d, label: labelMD(d) }));
+    if (!opts.length) { toast('這週已經過完了'); return { id: 'cancel' }; }
+    return modal({
+      title: `「${t.title}」要排在哪一天？`,
+      html: `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span> ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
+        ${t.note ? `<p class="pre muted">${esc(t.note)}</p>` : ''}
+        ${chipRadios('date', opts, t.date && opts.some((o) => o.value === t.date) ? t.date : null)}`,
+      buttons: [...extraButtons, { id: 'ok', label: '排好了', kind: 'primary' }],
+      validate: (id, d) => (id === 'ok' && !d.date ? '請選一天' : null)
+    });
+  }
+
+  async function openTray(t) {
+    try {
+      if (!mom) {
+        if (isOverdue(t)) return toast('這項已經過了那一週，等媽媽處理喔');
+        const r = await pickDay(t, today, [{ id: 'cancel', label: '等一下再排' }]);
+        if (r.id === 'ok') { await scheduleWeekly(t.id, r.data.date); toast(`排在 ${labelMD(r.data.date)} 了 👍`, 'ok'); }
+        return;
+      }
+      if (isOverdue(t)) {
+        const thisW = weekStart(today);
+        const r = await modal({
+          title: `逾期未安排：${t.title}`,
+          html: `<p class="muted">這是 ${labelMD(t.week)}–${labelMD(t.weekEnd)} 那週的進度，孩子沒有排日期。</p>`,
+          buttons: [{ id: 'delete', label: '刪除', kind: 'danger' }, { id: 'next', label: '移到下週' }, { id: 'this', label: '移到本週', kind: 'primary' }]
+        });
+        if (r.id === 'this') { await moveWeeklyTo(t.id, thisW, addDays(thisW, 6)); toast('已移到本週'); }
+        if (r.id === 'next') { await moveWeeklyTo(t.id, addDays(thisW, 7), addDays(thisW, 13)); toast('已移到下週'); }
+        if (r.id === 'delete' && await confirmDialog(`刪除「${t.title}」？`, { danger: true, okLabel: '刪除' })) await deleteTask(t.id);
+        return;
+      }
+      const r = await pickDay(t, t.week, [{ id: 'edit', label: '修改內容' }]);
+      if (r.id === 'ok') { await scheduleWeekly(t.id, r.data.date); toast(`已排在 ${labelMD(r.data.date)}`, 'ok'); }
+      if (r.id === 'edit') await openMomEdit(t);
+    } catch (e) { showError(e); }
+  }
+
+  /** 小孩點已排好的本週進度：可以改天或放回待安排（勾選完成後就不能改） */
+  async function openKidWeekly(t) {
+    const it = await getItemOnce(kid, t.date, t.id).catch(() => null);
+    const locked = t.itemApproved || (it && (it.done || it.review === 'approved'));
+    const info = `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span>
+      📦 本週進度・排在 ${labelMD(t.date)} ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
+      ${t.note ? `<p class="pre">${esc(t.note)}</p>` : ''}${t.momNote ? `<div class="advice">💬 媽媽的建議：${esc(t.momNote)}</div>` : ''}`;
+    if (locked || t.weekEnd < today) {
+      await modal({ title: t.title, html: info + (locked ? '<p class="muted small">已經勾選完成，不能改天囉。</p>' : ''), buttons: [{ id: 'ok', label: '好', kind: 'primary' }] });
+      return;
+    }
+    const r = await pickDay(t, today, [{ id: 'unschedule', label: '放回待安排' }]);
+    try {
+      if (r.id === 'ok' && r.data.date !== t.date) { await scheduleWeekly(t.id, r.data.date); toast(`改到 ${labelMD(r.data.date)} 了`, 'ok'); }
+      if (r.id === 'unschedule') { await scheduleWeekly(t.id, ''); toast('已放回待安排'); }
+    } catch (e) { showError(e); }
   }
 
   // ---------- 進度 ----------
@@ -111,6 +225,7 @@ export function mountSchedule(el, { kid }) {
 
   async function openTask(t) {
     if (mom) return openMomEdit(t);
+    if (t.kind === 'weekly') return openKidWeekly(t);
     const editable = t.createdBy === 'kid' && t.status === 'pending';
     const advice = t.momNote ? `<div class="advice">💬 媽媽的建議：${esc(t.momNote)}</div>` : '';
     if (!editable) {
@@ -147,7 +262,7 @@ export function mountSchedule(el, { kid }) {
         <div class="field"><span>科目</span>${subjectChips('subject', subjectList(), t.subject || '')}</div>
         <label class="field"><span>內容</span><input name="title" maxlength="60" value="${esc(t.title)}"></label>
         <div class="field-row">
-          <label class="field"><span>日期</span><input name="date" type="date" value="${t.date}"></label>
+          <label class="field"><span>日期${t.kind === 'weekly' ? `（${labelMD(t.week)}–${labelMD(t.weekEnd)}，可留空）` : ''}</span><input name="date" type="date" value="${t.date}" ${t.kind === 'weekly' ? `min="${t.week}" max="${t.weekEnd}"` : ''}></label>
           <label class="field"><span>點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${t.points || (t.status === 'pending' ? state.settings.defaultTaskPoints ?? 1 : 0)}"></label>
         </div>
         <label class="field"><span>說明</span><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></label>
@@ -159,7 +274,10 @@ export function mountSchedule(el, { kid }) {
       ],
       validate: (id, d) => {
         if (id === 'delete') return null;
-        if (!d.title || !isDateStr(d.date)) return '請填寫內容與日期';
+        if (t.kind === 'weekly') {
+          if (!d.title) return '請填寫內容';
+          if (d.date && (!isDateStr(d.date) || d.date < t.week || d.date > t.weekEnd)) return '日期要在同一週內，或留空讓孩子自己排';
+        } else if (!d.title || !isDateStr(d.date)) return '請填寫內容與日期';
         if (!(Number(d.points) >= 0)) return '點數必須是 0 以上的數字';
         return null;
       }
@@ -270,10 +388,11 @@ export function mountSchedule(el, { kid }) {
   async function addMenu(date) {
     const r = await modal({
       title: `${labelMD(date)} 要新增什麼？`,
-      html: `<p class="muted small">進度：可以得到點數，會出現在每日清單。<br>課程：固定的才藝課或行程，沒有點數。</p>`,
-      buttons: [{ id: 'event', label: '🕒 課程' }, { id: 'task', label: '📝 進度', kind: 'primary' }]
+      html: `<p class="muted small">進度：指定這一天做，可以得到點數。<br>本週進度：只訂內容，讓孩子自己排到這週某一天。<br>課程：固定的才藝課或行程，沒有點數。</p>`,
+      buttons: [{ id: 'event', label: '🕒 課程' }, { id: 'weekly', label: '📦 本週進度' }, { id: 'task', label: '📝 進度', kind: 'primary' }]
     });
     if (r.id === 'task') openNew(date);
+    if (r.id === 'weekly') newWeekly(date);
     if (r.id === 'event') openEventForm(null, date);
   }
 
@@ -287,6 +406,8 @@ export function mountSchedule(el, { kid }) {
       case 'span': span = Number(b.dataset.span); localStorage.setItem('kp.span', span); subscribe(); break;
       case 'new': openNew(b.dataset.date); break;
       case 'newEvent': openEventForm(null, b.dataset.date); break;
+      case 'newWeekly': newWeekly(b.dataset.date); break;
+      case 'tray': { const t = unscheduled.find((x) => x.id === b.dataset.id); if (t) openTray(t); break; }
       case 'addMenu': addMenu(b.dataset.date); break;
       case 'open': { const t = (tasks || []).find((x) => x.id === b.dataset.id); if (t) openTask(t); break; }
       case 'openEvent': { const ev = events.find((x) => x.id === b.dataset.id); if (ev) openEvent(ev, b.dataset.date); break; }
@@ -294,5 +415,5 @@ export function mountSchedule(el, { kid }) {
   });
 
   subscribe();
-  return () => { unsubTasks && unsubTasks(); unsubEvents(); };
+  return () => { unsubTasks && unsubTasks(); unsubEvents(); unsubUnsched(); };
 }

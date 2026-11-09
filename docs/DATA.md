@@ -12,7 +12,7 @@
 | `members/{mom\|kidA\|kidB}` | 使用者（媽媽與小孩） | `role`, `name`, `emoji`, `color`, `goal: {title, emoji, points, rewardId}`（目標，只有媽媽能設定） |
 | `meta/settings` | 點數規則、科目 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]` |
 | `private/pin` | 媽媽 PIN（PBKDF2 雜湊＋鹽） | `hash`, `salt`, `updatedAt` |
-| `tasks/{id}` | 進度（任務） | `kidId`, `date`, `title`, `note`, `subject`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
+| `tasks/{id}` | 進度（任務） | `kidId`, `date`（本週進度未排時為空字串）, `kind: weekly`（本週進度才有）, `week`／`weekEnd`（該週週一／週日）, `itemApproved`, `title`, `note`, `subject`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
 | `routines/{id}` | 每日固定事項 | `kidId`, `title`, `points`, `weekdays: [0-6]`, `active`, `order` |
 | `items/{kidId}_{date}_{sourceId}` | 每日清單項目 | `kidId`, `date`, `sourceType: task\|routine`, `sourceId`, `title`, `points`, `done`, `doneAt`, `review: none\|pending\|approved\|returned`, `returnNote` |
 | `ledger/{id}` | **點數流水帳** | `kidId`, `amount`（可為負）, `type: task\|bonus\|adjust\|redeem`, `title`, `date`, `refId`, `createdAt`, `createdBy` |
@@ -27,6 +27,11 @@
 
 **進度**：媽媽新增的進度直接是 `approved`；小孩新增的進度是 `pending`、0 點，等媽媽確認後才會有點數，也才會出現在清單上。
 媽媽可以在確認時修改內容、日期、點數，並留下 `momNote`，小孩看得到。
+
+**本週進度**：媽媽只訂內容、科目和點數，指定是哪一週（`kind: 'weekly'`, `date: ''`）。
+小孩在排程上方的「📦 本週待安排」選一天，把 `date` 填上，不需要媽媽再確認；之後就和一般進度一樣進入每日清單。
+勾選完成前可以改天或放回待安排，但只能在同一週內；入帳後 `itemApproved = true`，日期鎖定。
+過了那週還沒排的會標示「逾期未安排」，由媽媽移到本週、下週或刪除。
 
 **每日清單**：打開某天的清單時，App 會把「當天已確認的進度」和「符合星期的固定事項」合併，缺少的項目就建立。
 項目 ID 固定為 `{kidId}_{date}_{sourceId}`，所以兩台裝置同時打開也不會重複。
@@ -63,10 +68,10 @@
 | 未登入 | 什麼都不行 |
 | 未配對裝置 | 只能查詢家庭是否存在、送出／取消**自己的**配對申請、讀自己的裝置文件 |
 | 第一台裝置 | 家庭尚未存在時，可以用一次批次寫入建立家庭並成為媽媽裝置（家庭已存在就不行） |
-| 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能改 `done`／`review`（只能改成 `pending` 或 `none`，不能自己核可，已入帳的不能取消）；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
+| 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；本週進度只能改日期，而且只能排在同一週內，入帳後不能再改；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能改 `done`／`review`（只能改成 `pending` 或 `none`，不能自己核可，已入帳的不能取消）；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 25 項自動測試驗證上述規則。
+`tests/rules.test.mjs` 有 28 項自動測試驗證上述規則。
 
 ## 索引
 

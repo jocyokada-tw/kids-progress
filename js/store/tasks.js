@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, writeBatch, updateDoc, deleteDoc, doc, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, writeBatch, addDoc, updateDoc, deleteDoc, doc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
 
 // 任務（進度項目）
@@ -43,3 +43,22 @@ export const momSaveTask = (id, patch, status) =>
   updateDoc(fdoc('tasks', id), { ...patch, ...(status ? { status } : {}), updatedAt: serverTimestamp() });
 
 export const deleteTask = (id) => deleteDoc(fdoc('tasks', id));
+
+// ---- 本週進度：媽媽訂內容與點數，小孩自己排到這週的某一天 ----
+// kind: 'weekly'，week = 該週週一，weekEnd = 該週週日，date = '' 代表還沒排
+export function watchUnscheduled(kidId, cb, onErr) {
+  const q = query(fcol('tasks'), where('kidId', '==', kidId), where('date', '==', ''));
+  return onSnapshot(q, (s) => cb(docs(s).filter((t) => t.kind === 'weekly' && t.status !== 'rejected').sort((a, b) => a.week.localeCompare(b.week) || tsMillis(a.createdAt) - tsMillis(b.createdAt))), onErr);
+}
+
+export const createWeeklyTask = (kidId, week, weekEnd, { title, note, points, subject }) => addDoc(fcol('tasks'), {
+  kidId, kind: 'weekly', week, weekEnd, date: '', title, note: note || '', subject: subject || '', points,
+  createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false,
+  createdAt: serverTimestamp(), updatedAt: serverTimestamp()
+});
+
+/** 小孩（或媽媽）把本週進度排到某一天；date = '' 代表放回待安排 */
+export const scheduleWeekly = (id, date) => updateDoc(fdoc('tasks', id), { date, updatedAt: serverTimestamp() });
+
+/** 媽媽把逾期未排的進度移到另一週 */
+export const moveWeeklyTo = (id, week, weekEnd) => updateDoc(fdoc('tasks', id), { week, weekEnd, date: '', updatedAt: serverTimestamp() });

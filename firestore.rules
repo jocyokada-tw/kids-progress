@@ -91,7 +91,15 @@ service cloud.firestore {
           || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending'
               && kidTaskShape(request.resource.data)
               && request.resource.data.kidId == resource.data.kidId
-              && request.resource.data.momNote == resource.data.momNote);
+              && request.resource.data.momNote == resource.data.momNote)
+          // 本週進度：小孩只能改日期，且只能排在同一週內（或放回待安排）；入帳後就不能再改
+          || (canKid(resource.data.kidId) && resource.data.get('kind', '') == 'weekly'
+              && resource.data.get('itemApproved', false) != true
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'updatedAt'])
+              && (request.resource.data.date == ''
+                  || (isDate(request.resource.data.date)
+                      && request.resource.data.date >= resource.data.week
+                      && request.resource.data.date <= resource.data.weekEnd)));
         allow delete: if isMom()
           || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending');
       }
