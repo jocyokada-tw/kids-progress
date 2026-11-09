@@ -32,6 +32,9 @@ export function watchMembers(cb, onErr) {
 }
 export const saveMember = (id, data) => setDoc(fdoc('members', id), data, { merge: true });
 
+/** 媽媽設定小孩的目標：{ title, emoji, points, rewardId }，傳 null 代表清除 */
+export const saveGoal = (kidId, goal) => setDoc(fdoc('members', kidId), { goal: goal || null }, { merge: true });
+
 export function watchSettings(cb, onErr) {
   return onSnapshot(fdoc('meta', 'settings'), (s) => cb(s.exists() ? s.data() : {}), onErr);
 }

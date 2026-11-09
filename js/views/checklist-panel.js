@@ -1,4 +1,4 @@
-import { state, isMom } from '../state.js';
+import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonusIfComplete } from '../store/checklist.js';
 import { todayStr } from '../utils/date.js';
@@ -55,7 +55,7 @@ export function mountChecklistPanel(el, { kid, date }) {
         <div class="item-main">
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
-            <span class="tag">${it.sourceType === 'routine' ? '每日' : '進度'}</span>
+            ${it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${STATUS[it.review] || ''}
           </div>
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}

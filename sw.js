@@ -1,7 +1,7 @@
 // Service Worker：快取 App 外殼，讓啟動更快、短暫斷線也能打開。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v2';
+const VERSION = 'v4';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
@@ -10,9 +10,10 @@ const SHELL = [
   './js/utils/date.js', './js/utils/crypto.js',
   './js/store/paths.js', './js/store/family.js', './js/store/devices.js', './js/store/tasks.js',
   './js/store/routines.js', './js/store/checklist.js', './js/store/ledger.js',
+  './js/store/events.js', './js/store/rewards.js', './js/store/messages.js',
   './js/views/shell.js', './js/views/pair.js', './js/views/roles.js', './js/views/home.js',
   './js/views/checklist-panel.js', './js/views/checklist.js', './js/views/schedule.js',
-  './js/views/points.js', './js/views/settings.js',
+  './js/views/points.js', './js/views/settings.js', './js/views/messages.js', './js/views/goal.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png'
 ];
 

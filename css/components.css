@@ -216,13 +216,16 @@
 .icon-btn.add { color: var(--kid); font-size: 1.5rem; font-weight: 800; }
 .day-empty { color: #c9bfb2; text-align: center; padding: 6px; }
 .day-tasks { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
-.task {
+.task, .event {
+  --s: var(--kid);
   width: 100%; text-align: left; border: 0; border-radius: 12px; padding: 8px 10px; min-height: 44px;
-  background: color-mix(in srgb, var(--kid) 12%, white); border-left: 5px solid var(--kid);
+  background: color-mix(in srgb, var(--s) 16%, white); border-left: 6px solid var(--s);
   display: flex; flex-direction: column; gap: 2px;
 }
-.task-pending { background: var(--wait-soft); border-left-color: var(--wait); }
+.task-pending { outline: 2px dashed var(--wait); outline-offset: -2px; }
 .task-rejected { background: #f5f0ea; border-left-color: #c9bfb2; }
+.event { background: #fff; border: 2px solid var(--s); border-left-width: 6px; }
+.event-time { font-size: .8rem; font-weight: 800; color: color-mix(in srgb, var(--s) 55%, black); }
 .task-rejected .task-title { text-decoration: line-through; color: var(--muted); }
 .task-title { font-weight: 700; word-break: break-word; }
 .task-meta { display: flex; gap: 4px; flex-wrap: wrap; align-items: center; font-size: .85rem; }
@@ -273,7 +276,7 @@
 .modal-head h2 { margin: 0; }
 .modal-actions { display: flex; gap: 10px; justify-content: flex-end; flex-wrap: wrap; margin-top: 8px; }
 .modal-actions .btn { flex: 1; }
-.confirm-msg { font-size: 1.05rem; }
+.confirm-msg { font-size: 1.05rem; white-space: pre-line; }
 
 /* ===== 提示訊息 ===== */
 #toast-root { position: fixed; left: 0; right: 0; top: calc(10px + var(--safe-top)); z-index: 200; display: flex; flex-direction: column; align-items: center; gap: 6px; pointer-events: none; }
@@ -284,3 +287,83 @@
 .toast.show { opacity: 1; transform: none; }
 .toast-ok { background: var(--ok); }
 .toast-error { background: var(--bad); }
+
+/* ===== 留言板 ===== */
+.avatar.sm { width: 32px; height: 32px; font-size: 1.05rem; }
+.chat { padding: 12px; }
+.chat-list { display: flex; flex-direction: column; gap: 10px; }
+.chat-date { align-self: center; font-size: .8rem; color: var(--muted); background: #f4eee6; border-radius: 999px; padding: 1px 10px; margin: 4px 0; }
+.msg { display: flex; gap: 8px; align-items: flex-end; max-width: 85%; }
+.msg.mine { align-self: flex-end; flex-direction: row-reverse; }
+.msg-body { display: flex; flex-direction: column; min-width: 0; }
+.msg.mine .msg-body { align-items: flex-end; }
+.bubble { padding: 9px 14px; border-radius: 18px; background: #f4eee6; white-space: pre-wrap; word-break: break-word; font-size: 1.05rem; }
+.msg.theirs .bubble { border-bottom-left-radius: 6px; }
+.msg.mine .bubble { background: var(--kid); color: #fff; border-bottom-right-radius: 6px; }
+.msg-meta { font-size: .75rem; color: var(--muted); margin: 2px 6px 0; }
+.composer {
+  position: sticky; bottom: calc(72px + var(--safe-bottom)); z-index: 5;
+  display: flex; gap: 8px; align-items: flex-end; padding: 8px; background: #fff; border-radius: 18px; box-shadow: var(--shadow);
+}
+.composer textarea { flex: 1; min-height: var(--tap); max-height: 140px; resize: none; padding: 10px 12px; border: 2px solid var(--line); border-radius: 14px; font-size: 17px; }
+.composer textarea:focus { border-color: var(--kid); outline: none; }
+@media (min-width: 900px) and (orientation: landscape), (min-width: 1100px) {
+  .composer { bottom: calc(12px + var(--safe-bottom)); }
+}
+
+/* ===== 科目顏色 ===== */
+.dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; background: var(--s, #ccc); flex: none; }
+.dot.ring { background: #fff; border: 2px solid var(--muted); }
+.subj-tag {
+  --s: #9a94a8;
+  display: inline-block; font-size: .78rem; font-weight: 800; padding: 1px 8px; border-radius: 999px;
+  background: color-mix(in srgb, var(--s) 24%, white); color: color-mix(in srgb, var(--s) 55%, black);
+}
+.task .subj-tag { background: #fff; }
+.chip.subj span { gap: 6px; }
+.chip.subj input:checked + span { background: color-mix(in srgb, var(--s) 20%, white); border-color: var(--s); color: var(--ink); }
+.legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: -4px 4px 10px; font-size: .85rem; color: var(--muted); }
+.legend-item { display: inline-flex; align-items: center; gap: 4px; }
+.legend .dot { width: 10px; height: 10px; }
+
+/* ===== 目標 ===== */
+.goal { text-align: left; }
+.goal-head { display: flex; align-items: center; gap: 10px; }
+.goal-emoji { font-size: 2.2rem; width: 56px; height: 56px; border-radius: 16px; display: grid; place-items: center; background: #fff3c9; flex: none; }
+.goal-title { font-weight: 800; font-size: 1.1rem; }
+.goal-bar { height: 22px; background: #f4eee6; border-radius: 999px; overflow: hidden; margin: 10px 0 6px; }
+.goal-fill { height: 100%; background: linear-gradient(90deg, #ffc93c, #ff8a3d); border-radius: 999px; transition: width .5s; }
+.goal-done .goal-fill { background: linear-gradient(90deg, #2dbb6c, #7ad97f); }
+.goal-text { font-weight: 700; }
+
+/* ===== 兌換 ===== */
+.reward-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.reward {
+  border: 2px solid var(--line); border-radius: 16px; background: #fff; padding: 12px 10px; min-height: 140px;
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; text-align: center;
+}
+.reward:not(:disabled):active { transform: scale(.97); }
+.reward-emoji { font-size: 2.2rem; }
+.reward-title { font-weight: 800; }
+.reward-cost { font-weight: 900; color: #b07800; }
+.reward.cant { opacity: .55; }
+.reward-need { font-size: .78rem; color: var(--muted); }
+.req-row { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.req-row:last-child { border-bottom: 0; }
+.req-emoji { font-size: 1.6rem; }
+.status-pill { font-size: .8rem; font-weight: 800; border-radius: 999px; padding: 1px 9px; }
+.st-pending { background: var(--wait-soft); color: #a86b00; }
+.st-approved { background: var(--ok-soft); color: #13804a; }
+.st-rejected { background: var(--bad-soft); color: var(--bad); }
+.st-cancelled { background: #f1ebe3; color: var(--muted); }
+.subj-row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.subj-row input[type=text] { flex: 1; min-height: var(--tap); padding: 8px 12px; border: 2px solid var(--line); border-radius: 12px; font-size: 17px; min-width: 0; }
+.subj-row input[type=color] { width: 52px; height: var(--tap); border: 2px solid var(--line); border-radius: 12px; padding: 2px; background: #fff; flex: none; }
+
+/* ===== 本週待安排 ===== */
+.tray { border: 2px dashed color-mix(in srgb, var(--kid) 55%, white); }
+.tray h2 { display: flex; align-items: center; gap: 8px; }
+.tray-week { font-weight: 700; font-size: .9rem; color: var(--muted); margin: 8px 0 6px; }
+.tray-items { display: grid; grid-template-columns: repeat(auto-fill, minmax(170px, 1fr)); gap: 8px; }
+.tray-item.is-overdue { opacity: .7; outline: 2px dashed var(--bad); outline-offset: -2px; }
+.todo-pill.bad { background: var(--bad-soft); color: var(--bad); }

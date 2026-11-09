@@ -9,20 +9,29 @@
 | `families/{fid}` | 家庭本身 | `setupBy`（建立者裝置 uid）, `createdAt` |
 | `devices/{uid}` | **已配對的裝置**（權限的依據） | `isMom`, `kids: ['kidA', …]`, `label`, `pairedAt` |
 | `pairRequests/{uid}` | 等待媽媽核可的裝置 | `code`（4 位數）, `label`, `createdAt` |
-| `members/{mom\|kidA\|kidB}` | 使用者（媽媽與小孩） | `role`, `name`, `emoji`, `color` |
-| `meta/settings` | 點數規則 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints` |
+| `members/{mom\|kidA\|kidB}` | 使用者（媽媽與小孩） | `role`, `name`, `emoji`, `color`, `goal: {title, emoji, points, rewardId}`（目標，只有媽媽能設定） |
+| `meta/settings` | 點數規則、科目 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]` |
 | `private/pin` | 媽媽 PIN（PBKDF2 雜湊＋鹽） | `hash`, `salt`, `updatedAt` |
-| `tasks/{id}` | 進度（任務） | `kidId`, `date`, `title`, `note`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
+| `tasks/{id}` | 進度（任務） | `kidId`, `date`（本週進度未排時為空字串）, `kind: weekly`（本週進度才有）, `week`／`weekEnd`（該週週一／週日）, `itemApproved`, `title`, `note`, `subject`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
 | `routines/{id}` | 每日固定事項 | `kidId`, `title`, `points`, `weekdays: [0-6]`, `active`, `order` |
 | `items/{kidId}_{date}_{sourceId}` | 每日清單項目 | `kidId`, `date`, `sourceType: task\|routine`, `sourceId`, `title`, `points`, `done`, `doneAt`, `review: none\|pending\|approved\|returned`, `returnNote` |
 | `ledger/{id}` | **點數流水帳** | `kidId`, `amount`（可為負）, `type: task\|bonus\|adjust\|redeem`, `title`, `date`, `refId`, `createdAt`, `createdBy` |
 
-第二階段會再加入：`rewards/{id}`（兌換項目）、`redemptions/{id}`（兌換紀錄）、`threads/{kidId}/messages/{id}`（留言）。
+| `events/{id}` | 課程（非學校行程，沒有點數） | `kidId`, `title`, `subject`, `start`, `end`（HH:MM）, `repeat: weekly\|once`, `weekdays`, `from`, `until`, `date`, `skipDates`（只取消某一次）, `note` |
+| `rewards/{id}` | 兌換項目 | `title`, `emoji`, `cost`, `active` |
+| `redemptions/{id}` | 兌換申請與紀錄 | `kidId`, `rewardId`, `title`, `emoji`, `cost`, `status: pending\|approved\|rejected\|cancelled`, `momNote`, `createdAt`, `decidedAt` |
+| `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
+| `threads/{kidId}/messages/{id}` | 留言 | `from: mom\|kid`, `text`（最多 500 字）, `createdAt` |
 
 ## 流程
 
 **進度**：媽媽新增的進度直接是 `approved`；小孩新增的進度是 `pending`、0 點，等媽媽確認後才會有點數，也才會出現在清單上。
 媽媽可以在確認時修改內容、日期、點數，並留下 `momNote`，小孩看得到。
+
+**本週進度**：媽媽只訂內容、科目和點數，指定是哪一週（`kind: 'weekly'`, `date: ''`）。
+小孩在排程上方的「📦 本週待安排」選一天，把 `date` 填上，不需要媽媽再確認；之後就和一般進度一樣進入每日清單。
+勾選完成前可以改天或放回待安排，但只能在同一週內；入帳後 `itemApproved = true`，日期鎖定。
+過了那週還沒排的會標示「逾期未安排」，由媽媽移到本週、下週或刪除。
 
 **每日清單**：打開某天的清單時，App 會把「當天已確認的進度」和「符合星期的固定事項」合併，缺少的項目就建立。
 項目 ID 固定為 `{kidId}_{date}_{sourceId}`，所以兩台裝置同時打開也不會重複。
@@ -38,7 +47,16 @@
 **目前點數 = 該小孩所有流水帳 `amount` 的總和**。沒有任何地方存放「總點數」，所以：
 - 每一點都查得到來源（哪一天、哪個項目、誰核可）。
 - 要更正只能新增一筆 `adjust`（手動調整，需填原因），舊紀錄不會被改寫。
-- 第二階段的兌換會新增一筆負數的 `redeem` 紀錄。
+- 兌換核可時新增一筆負數的 `redeem` 紀錄（ID 固定為 `redeem_{申請ID}`，不會重複扣點）。
+
+**兌換（先預留點數）**：
+1. 小孩申請兌換 → `redemptions` 新增一筆 `pending`。
+2. 「可用點數 = 目前點數 − 所有申請中的點數」，可用點數不夠就不能再申請。
+3. 媽媽核可 → 同一個交易中把申請改成 `approved`，並寫入負數流水帳；媽媽退回或小孩取消 → 預留的點數自動釋放。
+
+**目標**：媽媽在設定中為每個小孩設定目標（名稱、圖示、點數），小孩首頁與點數頁顯示「目前點數／目標點數，還差 N 點」。
+
+**留言已讀**：打開對話時更新自己的 `momReadAt`／`kidReadAt`；我傳的訊息若 `createdAt` 早於對方的讀取時間，就顯示「已讀」。
 
 ## 安全規則重點（`firestore.rules`）
 
@@ -50,10 +68,10 @@
 | 未登入 | 什麼都不行 |
 | 未配對裝置 | 只能查詢家庭是否存在、送出／取消**自己的**配對申請、讀自己的裝置文件 |
 | 第一台裝置 | 家庭尚未存在時，可以用一次批次寫入建立家庭並成為媽媽裝置（家庭已存在就不行） |
-| 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能改 `done`／`review`（只能改成 `pending` 或 `none`，不能自己核可，已入帳的不能取消）；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
+| 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；本週進度只能改日期，而且只能排在同一週內，入帳後不能再改；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能改 `done`／`review`（只能改成 `pending` 或 `none`，不能自己核可，已入帳的不能取消）；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 17 項自動測試驗證上述規則。
+`tests/rules.test.mjs` 有 28 項自動測試驗證上述規則。
 
 ## 索引
 

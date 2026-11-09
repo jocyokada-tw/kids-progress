@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, getDoc, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs } from './paths.js';
 import { watchRoutines } from './routines.js';
 import { watchTasksOnDate } from './tasks.js';
@@ -13,9 +13,9 @@ function expectedFor(kidId, date, routines, tasks) {
   const wd = weekday(date);
   const list = [
     ...routines.filter((r) => r.active !== false && (r.weekdays || []).includes(wd))
-      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i })),
+      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '' })),
     ...tasks.filter((t) => t.status === 'approved')
-      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i }))
+      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '' }))
   ];
   return new Map(list.map((e) => [itemId(kidId, date, e.sourceId), e]));
 }
@@ -26,7 +26,7 @@ async function createItem(id, kidId, date, e) {
     const s = await tx.get(ref);
     if (s.exists()) return;
     tx.set(ref, {
-      kidId, date, sourceType: e.sourceType, sourceId: e.sourceId, title: e.title, points: e.points, order: e.order,
+      kidId, date, sourceType: e.sourceType, sourceId: e.sourceId, title: e.title, points: e.points, order: e.order, subject: e.subject,
       done: false, doneAt: null, review: 'none', returnNote: '', createdAt: serverTimestamp()
     });
   });
@@ -62,9 +62,9 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
       const e = expected.get(it.id);
       if (!e) {
         if (!tried.has('d' + it.id)) { tried.add('d' + it.id); deleteDoc(fdoc('items', it.id)).catch(onError); }
-      } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order) {
-        const key = `u${it.id}|${e.title}|${e.points}|${e.order}`;
-        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order }).catch(onError); }
+      } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
+        const key = `u${it.id}|${e.title}|${e.points}|${e.order}|${e.subject}`;
+        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order, subject: e.subject }).catch(onError); }
       }
     }
   };
@@ -76,6 +76,12 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
       (s) => { items = docs(s); update(); }, onError)
   ];
   return () => unsubs.forEach((u) => u());
+}
+
+/** 讀一次某個清單項目（不存在回傳 null） */
+export async function getItemOnce(kidId, date, sourceId) {
+  const s = await getDoc(fdoc('items', itemId(kidId, date, sourceId)));
+  return s.exists() ? s.data() : null;
 }
 
 export function watchPendingItems(kidId, cb, onErr) {
@@ -106,7 +112,11 @@ export async function approveItem(id) {
     const it = s.data();
     if (it.review === 'approved') return;
     const l = await tx.get(lref);
+    // 進度入帳後鎖定日期（本週進度不能再改天）
+    const tref = it.sourceType === 'task' ? fdoc('tasks', it.sourceId) : null;
+    const t = tref ? await tx.get(tref) : null;
     tx.update(ref, { done: true, review: 'approved', returnNote: '', approvedAt: serverTimestamp() });
+    if (t && t.exists()) tx.update(tref, { itemApproved: true });
     if (!l.exists()) {
       tx.set(lref, {
         kidId: it.kidId, amount: it.points, type: 'task', title: it.title, date: it.date,

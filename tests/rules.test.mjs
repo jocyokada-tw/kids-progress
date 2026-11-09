@@ -29,17 +29,20 @@ async function seed() {
     await setDoc(doc(d, F, 'routines/r1'), { kidId: 'kidA', title: '刷牙', points: 1, weekdays: [0, 1, 2, 3, 4, 5, 6], active: true });
     await setDoc(doc(d, F, 'tasks/t1'), { kidId: 'kidA', date: '2026-11-08', title: '數學', points: 3, status: 'approved', createdBy: 'mom', momNote: '' });
     await setDoc(doc(d, F, 'tasks/tB'), { kidId: 'kidB', date: '2026-11-08', title: '國語', points: 3, status: 'approved', createdBy: 'mom', momNote: '' });
+    await setDoc(doc(d, F, 'rewards/rw1'), { title: '看卡通', emoji: '📺', cost: 20, active: true });
+    await setDoc(doc(d, F, 'events/e1'), { kidId: 'kidA', title: '朱宗慶', repeat: 'weekly', weekdays: [3], start: '16:00', end: '17:00' });
+    await setDoc(doc(d, F, 'events/eB'), { kidId: 'kidB', title: '游泳', repeat: 'weekly', weekdays: [2], start: '16:00', end: '17:00' });
     await setDoc(doc(d, F, 'items/kidA_2026-11-08_t1'), { kidId: 'kidA', date: '2026-11-08', sourceType: 'task', sourceId: 't1', title: '數學', points: 3, done: false, review: 'none' });
   });
 }
 beforeEach(seed);
 
 const kidItem = (over = {}) => ({
-  kidId: 'kidA', date: '2026-11-08', sourceType: 'routine', sourceId: 'r1', title: '刷牙', points: 1, order: 0,
+  kidId: 'kidA', date: '2026-11-08', sourceType: 'routine', sourceId: 'r1', title: '刷牙', subject: '', points: 1, order: 0,
   done: false, doneAt: null, review: 'none', returnNote: '', createdAt: serverTimestamp(), ...over
 });
 const kidTask = (over = {}) => ({
-  kidId: 'kidA', date: '2026-11-09', title: '練琴', note: '', points: 0, createdBy: 'kid', status: 'pending', momNote: '',
+  kidId: 'kidA', date: '2026-11-09', title: '練琴', note: '', subject: 'math', points: 0, createdBy: 'kid', status: 'pending', momNote: '',
   createdAt: serverTimestamp(), updatedAt: serverTimestamp(), ...over
 });
 
@@ -176,4 +179,103 @@ test('小孩只能讀自己的流水帳', async () => {
 test('未登入者什麼都不能讀', async () => {
   await assertFails(getDoc(doc(db(null), F)));
   await assertFails(getDoc(doc(db(null), F, 'routines/r1')));
+});
+
+// ---------- 第二階段：課程、兌換、目標、留言 ----------
+const redeem = (over = {}) => ({
+  kidId: 'kidA', rewardId: 'rw1', title: '看卡通', emoji: '📺', cost: 20, status: 'pending', momNote: '',
+  createdAt: serverTimestamp(), decidedAt: null, ...over
+});
+
+test('課程：小孩只能看自己的，不能新增或修改', async () => {
+  const d = db('a');
+  await assertSucceeds(getDocs(query(collection(d, F, 'events'), where('kidId', '==', 'kidA'))));
+  await assertFails(getDocs(query(collection(d, F, 'events'), where('kidId', '==', 'kidB'))));
+  await assertFails(setDoc(doc(d, F, 'events/x'), { kidId: 'kidA', title: 'x' }));
+  await assertFails(updateDoc(doc(d, F, 'events/e1'), { title: 'x' }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'events/x'), { kidId: 'kidA', title: 'x' }));
+});
+test('兌換項目：小孩可讀不可寫', async () => {
+  await assertSucceeds(getDocs(collection(db('a'), F, 'rewards')));
+  await assertFails(updateDoc(doc(db('a'), F, 'rewards/rw1'), { cost: 1 }));
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'rewards/rw1'), { cost: 25 }));
+});
+test('兌換申請：點數必須和兌換項目一致、只能是申請中', async () => {
+  const d = db('a');
+  await assertSucceeds(setDoc(doc(d, F, 'redemptions/q1'), redeem()));
+  await assertFails(setDoc(doc(d, F, 'redemptions/q2'), redeem({ cost: 1 })));
+  await assertFails(setDoc(doc(d, F, 'redemptions/q3'), redeem({ status: 'approved' })));
+  await assertFails(setDoc(doc(d, F, 'redemptions/q4'), redeem({ kidId: 'kidB' })));
+});
+test('兌換申請：小孩只能取消，不能自己核可；媽媽可以核可', async () => {
+  const d = db('a');
+  await setDoc(doc(d, F, 'redemptions/q1'), redeem());
+  await assertFails(updateDoc(doc(d, F, 'redemptions/q1'), { status: 'approved' }));
+  await assertFails(updateDoc(doc(d, F, 'redemptions/q1'), { status: 'cancelled', cost: 0 }));
+  await assertSucceeds(updateDoc(doc(d, F, 'redemptions/q1'), { status: 'cancelled', decidedAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(d, F, 'redemptions/q1'), { status: 'pending' }));
+  await setDoc(doc(d, F, 'redemptions/q2'), redeem());
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'redemptions/q2'), { status: 'approved' }));
+  await assertFails(deleteDoc(doc(db('mom'), F, 'redemptions/q2')));
+});
+test('目標存在 members，只有媽媽能設定', async () => {
+  await assertFails(setDoc(doc(db('a'), F, 'members/kidA'), { goal: { title: 'x', points: 1 } }, { merge: true }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'members/kidA'), { goal: { title: '樂高', points: 200 } }, { merge: true }));
+});
+test('留言：小孩只能以小孩身分在自己的對話串留言，不能改或刪', async () => {
+  const d = db('a');
+  const col = collection(d, F, 'threads/kidA/messages');
+  await assertSucceeds(setDoc(doc(col, 'm1'), { from: 'kid', text: '嗨', createdAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(col, 'm2'), { from: 'mom', text: '假冒', createdAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(col, 'm3'), { from: 'kid', text: '', createdAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(col, 'm4'), { from: 'kid', text: 'x'.repeat(501), createdAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(col, 'm1'), { text: '改' }));
+  await assertFails(deleteDoc(doc(col, 'm1')));
+  await assertFails(setDoc(doc(d, F, 'threads/kidB/messages/m5'), { from: 'kid', text: '嗨', createdAt: serverTimestamp() }));
+  await assertFails(getDocs(collection(d, F, 'threads/kidB/messages')));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'threads/kidA/messages/m6'), { from: 'mom', text: '好', createdAt: serverTimestamp() }));
+  await assertSucceeds(getDocs(col));
+});
+test('已讀時間：小孩只能更新 kidReadAt', async () => {
+  const d = db('a');
+  await assertSucceeds(setDoc(doc(d, F, 'threads/kidA'), { kidReadAt: serverTimestamp() }, { merge: true }));
+  await assertFails(setDoc(doc(d, F, 'threads/kidA'), { momReadAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'threads/kidA'), { momReadAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(getDoc(doc(d, F, 'threads/kidA')));
+  await assertFails(getDoc(doc(d, F, 'threads/kidB')));
+});
+test('媽媽核可兌換時寫入負數流水帳', async () => {
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'ledger/redeem_q1'), { kidId: 'kidA', amount: -20, type: 'redeem', title: '兌換', createdAt: serverTimestamp() }));
+  await assertFails(setDoc(doc(db('a'), F, 'ledger/redeem_q2'), { kidId: 'kidA', amount: 20, type: 'redeem', title: '兌換', createdAt: serverTimestamp() }));
+});
+
+// ---------- 本週進度 ----------
+async function seedWeekly(over = {}) {
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), F, 'tasks/w1'), {
+    kidId: 'kidA', kind: 'weekly', week: '2026-11-09', weekEnd: '2026-11-15', date: '', title: '數學習作', note: '', subject: 'math',
+    points: 3, createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false, ...over
+  }));
+}
+test('本週進度：小孩可以排到同一週的某一天、改天、放回待安排', async () => {
+  await seedWeekly();
+  const ref = doc(db('a'), F, 'tasks/w1');
+  await assertSucceeds(updateDoc(ref, { date: '2026-11-11', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
+  await assertSucceeds(getDocs(query(collection(db('a'), F, 'tasks'), where('kidId', '==', 'kidA'), where('date', '==', ''))));
+});
+test('本週進度：不能排到別週、不能改點數或內容、入帳後不能改', async () => {
+  await seedWeekly();
+  const ref = doc(db('a'), F, 'tasks/w1');
+  await assertFails(updateDoc(ref, { date: '2026-11-16' }));
+  await assertFails(updateDoc(ref, { date: '2026-11-08' }));
+  await assertFails(updateDoc(ref, { date: 'tomorrow' }));
+  await assertFails(updateDoc(ref, { points: 30 }));
+  await assertFails(updateDoc(ref, { title: '改', date: '2026-11-10' }));
+  await assertFails(updateDoc(ref, { week: '2026-11-16', weekEnd: '2026-11-22' }));
+  await seedWeekly({ date: '2026-11-10', itemApproved: true });
+  await assertFails(updateDoc(ref, { date: '2026-11-12' }));
+});
+test('一般進度（非本週）小孩仍然不能改日期', async () => {
+  await assertFails(updateDoc(doc(db('a'), F, 'tasks/t1'), { date: '2026-11-09' }));
 });

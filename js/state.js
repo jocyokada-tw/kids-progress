@@ -5,6 +5,17 @@ export const COLORS = {
   orange: '#ff8a3d', pink: '#ff5fa2', rose: '#e8536b', blue: '#3d8bff',
   green: '#2dbb6c', purple: '#8b5cf6', teal: '#14b8a6', yellow: '#f5b301'
 };
+// 科目與顏色（媽媽可在設定中修改，存在 meta/settings.subjects）
+export const DEFAULT_SUBJECTS = [
+  { id: 'chinese', name: '國語', color: '#3d7be0' },
+  { id: 'math', name: '數學', color: '#e5484d' },
+  { id: 'social', name: '社會', color: '#b08060' },
+  { id: 'science', name: '自然', color: '#2f9e44' },
+  { id: 'english', name: '英文', color: '#ff9f80' },
+  { id: 'jusmile', name: '朱宗慶', color: '#a3d65c' }
+];
+export const OTHER_SUBJECT = { id: '', name: '其他', color: '#9a94a8' };
+
 export const EMOJIS = ['🦊', '🐳', '🐼', '🐯', '🦄', '🐶', '🐱', '🐰', '🐸', '🦁', '🐧', '🐙', '🚀', '⚽', '🌟', '🌈'];
 
 export const state = {
@@ -36,6 +47,14 @@ export function allowedProfiles() {
 }
 
 export const isMom = () => state.profile === 'mom';
+
+export function subjects() {
+  const list = state.settings.subjects;
+  return Array.isArray(list) ? list : DEFAULT_SUBJECTS;
+}
+export function subjectOf(id) {
+  return (id && subjects().find((s) => s.id === id)) || OTHER_SUBJECT;
+}
 
 const DEFAULT_MEMBER = {
   mom: { name: '媽媽', emoji: '👩', color: 'rose' },
