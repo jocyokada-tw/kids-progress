@@ -1,7 +1,7 @@
 // Service Worker：快取 App 外殼，讓啟動更快、短暫斷線也能打開。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v1';
+const VERSION = 'v2';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
