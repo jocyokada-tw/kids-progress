@@ -2,6 +2,7 @@ import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonusIfComplete } from '../store/checklist.js';
 import { todayStr } from '../utils/date.js';
+import { needOnline } from '../net.js';
 
 const STATUS = {
   pending: '<span class="tag tag-wait">⏳ 待核可</span>',
@@ -25,7 +26,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     if (future) { el.innerHTML = `<p class="empty">還沒到這一天喔 🌙</p>`; return; }
     if (!items) { el.innerHTML = `<p class="empty">載入中…</p>`; return; }
     if (!items.length) {
-      el.innerHTML = `<p class="empty">這天沒有項目 🎈${mom ? '<br><span class="small">可到「設定」新增每日固定事項，或到「排程」安排進度。</span>' : ''}</p>`;
+      el.innerHTML = `<p class="empty">${navigator.onLine ? '' : '📴 離線中：連上網路後會產生這天的清單。<br>'}這天沒有項目 🎈${mom ? '<br><span class="small">可到「設定」新增每日固定事項，或到「排程」安排進度。</span>' : ''}</p>`;
       return;
     }
     const total = items.length;
@@ -89,6 +90,7 @@ export function mountChecklistPanel(el, { kid, date }) {
           break;
         }
         case 'approve':
+          needOnline('核可');
           b.disabled = true;
           await approveItem(it.id);
           toast(`已核可：${it.title} +${it.points}`, 'ok');
@@ -104,6 +106,7 @@ export function mountChecklistPanel(el, { kid, date }) {
           break;
         }
         case 'approveAll': {
+          needOnline('核可');
           b.disabled = true;
           const list = items.filter((i) => i.review === 'pending');
           for (const i of list) await approveItem(i.id);

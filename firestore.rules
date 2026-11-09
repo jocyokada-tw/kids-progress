@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// 親子進度與點數：Firestore 安全規則（第一、二階段）
+// 親子進度與點數：Firestore 安全規則（第一～三階段）
 //
 // 身分模型（方案 A：匿名登入＋裝置配對）
 // - 每台裝置用 Firebase 匿名登入取得一個 uid。
@@ -183,6 +183,18 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt']));
         allow delete: if false;
       }
+
+      // ---------- 推播通知權杖：每台已配對裝置只能寫自己的；只有伺服器（Cloud Functions）會讀 ----------
+      // pushQueue（勿擾時段暫存）、meta/pushState 由伺服器寫入，用戶端不需要存取
+      match /pushTokens/{uid} {
+        allow read: if false;
+        allow create, update: if signedIn() && request.auth.uid == uid && paired()
+          && request.resource.data.keys().hasOnly(['token', 'ua', 'updatedAt'])
+          && isText(request.resource.data.token, 4096) && request.resource.data.token.size() > 0
+          && isText(request.resource.data.ua, 200);
+        allow delete: if (signedIn() && request.auth.uid == uid) || isMom();
+      }
+      match /pushQueue/{id} { allow read, write: if false; }
 
       // ---------- 留言板 ----------
       match /threads/{kidId} {

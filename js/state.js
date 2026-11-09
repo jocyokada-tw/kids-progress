@@ -14,6 +14,17 @@ export const DEFAULT_SUBJECTS = [
   { id: 'english', name: '英文', color: '#ff9f80' },
   { id: 'jusmile', name: '朱宗慶', color: '#a3d65c' }
 ];
+// 通知預設值（和 functions/core.js 的 DEFAULT_NOTIFY 相同）
+export const DEFAULT_NOTIFY = {
+  mom: { kidTask: true, itemDone: true, redeem: true, message: true },
+  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true },
+  quietStart: '22:00', quietEnd: '07:00', dailyTime: '20:00'
+};
+export function notifySettings() {
+  const n = state.settings.notify || {};
+  return { ...DEFAULT_NOTIFY, ...n, mom: { ...DEFAULT_NOTIFY.mom, ...(n.mom || {}) }, kid: { ...DEFAULT_NOTIFY.kid, ...(n.kid || {}) } };
+}
+
 export const OTHER_SUBJECT = { id: '', name: '其他', color: '#9a94a8' };
 
 export const EMOJIS = ['🦊', '🐳', '🐼', '🐯', '🦄', '🐶', '🐱', '🐰', '🐸', '🦁', '🐧', '🐙', '🚀', '⚽', '🌟', '🌈'];
@@ -24,6 +35,7 @@ export const state = {
   device: undefined,     // undefined=讀取中, null=尚未配對, object=已配對
   members: {},
   membersReady: false,
+  settingsReady: false,
   settings: { bonusAllDone: 0, defaultTaskPoints: 1 },
   profile: sessionStorage.getItem('kp.profile') || null
 };

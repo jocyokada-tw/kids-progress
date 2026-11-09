@@ -9,5 +9,9 @@ export const firebaseConfig = {
   appId: ""
 };
 
+// 推播通知用的「網路推播憑證」公開金鑰（Firebase 主控台 → 專案設定 → Cloud Messaging →
+// 網路設定 → Web Push 憑證 → 產生金鑰組）。沒有填的話，通知功能不會出現。
+export const vapidKey = "";
+
 // 家庭代號：同一個家庭的所有裝置必須相同。只用英文、數字、底線。
 export const FAMILY_ID = "home";

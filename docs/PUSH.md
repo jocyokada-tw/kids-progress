@@ -1,0 +1,92 @@
+# 推播通知設定（第三階段）
+
+推播需要一支在 Firebase 上執行的小程式（`functions/` 資料夾）：資料變動時，由它發通知到各裝置。
+下面的步驟只要做一次，全程用瀏覽器就可以完成，不用在電腦上安裝任何東西。
+
+---
+
+## 1. 升級 Firebase 為 Blaze 方案
+
+1. Firebase 主控台左下角「Spark 方案」→「升級」→ 選 **Blaze（依用量付費）**，綁定信用卡。
+2. **建議設定預算提醒**：升級時會詢問預算，填 **US$1**。超過時會寄信通知你，但不會自動停止服務。
+   一個家庭的用量遠低於免費額度，正常情況是 0 元。
+
+## 2. 確認資料庫位置
+
+Firestore Database → 頁面上方或「設定」中的「位置」。
+
+- 如果是 **asia-east1（台灣）**，不用改。
+- 如果不是，請告訴我位置；或自己把 `functions/index.js` 裡的 `const REGION = 'asia-east1';` 改成相同的位置。
+
+## 3. 產生推播金鑰
+
+1. 專案設定（齒輪）→ **Cloud Messaging** 分頁 → 往下找「網路設定」→「Web Push 憑證」→「**產生金鑰組**」。
+2. 複製產生的那一長串「金鑰組」（公開金鑰，可以公開）。
+3. 貼到 `config.js` 的 `vapidKey: "…"`，或直接傳給我，我幫你填。
+
+## 4. 部署通知程式（用 Google Cloud Shell）
+
+1. 用同一個 Google 帳號打開 <https://shell.cloud.google.com>，畫面下方會出現一個指令視窗。
+2. 依序貼上下面的指令，每貼一行按一次 Enter：
+
+```bash
+git clone https://github.com/jocyokada-tw/kids-progress.git
+```
+
+```bash
+cd kids-progress/functions && npm install && cd ..
+```
+
+```bash
+npx firebase-tools@15.34.2 login --no-localhost
+```
+
+（會顯示一個網址：打開它、登入 Google、按允許，再把畫面上的授權碼貼回指令視窗。）
+
+```bash
+npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-progress-0927
+```
+
+- 第一次部署會自動啟用幾個需要的 Google Cloud 服務，大約要等 3～5 分鐘。
+- 如果問「How many days do you want to keep container images…」，輸入 `1` 按 Enter。
+- 如果第一次出現 **Eventarc** 或 **permission** 相關的錯誤，通常是服務剛啟用還沒生效。等 2～3 分鐘，再執行一次最後那行指令即可。
+- 看到 `Deploy complete!` 就成功了。這個指令也會**一併發布安全規則和索引**，之後不用再手動貼規則。
+
+**之後通知程式或規則有更新時**：打開 Cloud Shell，執行下面兩行即可。
+
+```bash
+cd ~/kids-progress && git pull && (cd functions && npm install)
+```
+
+```bash
+npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-progress-0927
+```
+
+## 5. 每台裝置開啟通知
+
+- iPhone／iPad 需要 **iOS 16.4 以上**，而且要從**主畫面的圖示**打開 App。
+- 媽媽：⚙️ 設定 → 🔔 通知 →「開啟通知」→ 允許。
+- 小孩：首頁上方會出現「開啟通知」的提示 → 按下 → 允許。
+- 每台裝置都要各自開啟一次。
+
+## 6. 測試
+
+在小孩的裝置傳一則留言，媽媽的手機應該在幾秒內收到「💬 小明」的通知。
+勿擾時段（預設 22:00～07:00）內不會發送，時段結束後才補發；測試時請避開這個時段，或先到設定裡調整。
+
+---
+
+## 通知內容
+
+| 收到的人 | 什麼時候 |
+|---|---|
+| 媽媽 | 孩子自己排了進度、勾選完成待核可（同一天合併成一則）、申請兌換、留言 |
+| 孩子 | 進度被確認或退回（含建議）、點數入帳／被退回／額外獎勵／媽媽加點、兌換核可或退回、媽媽的留言、媽媽新增本週進度、每日提醒 |
+
+- **每日提醒**（預設 20:00）：列出今天還沒完成的項目，以及本週還沒排日期的進度。都完成了就不提醒。
+- 每一類通知都可以在 ⚙️ 設定 → 🔔 通知 中關閉；勿擾時段和每日提醒的時間也在那裡調整（以 30 分鐘為單位）。
+
+## 費用說明
+
+- 通知程式只在資料變動時執行，另外每 30 分鐘執行一次排程（檢查每日提醒、補發勿擾時段的通知）。
+- 這些用量都在 Blaze 方案的每月免費額度內。

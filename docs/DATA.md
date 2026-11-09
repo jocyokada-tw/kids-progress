@@ -10,7 +10,7 @@
 | `devices/{uid}` | **已配對的裝置**（權限的依據） | `isMom`, `kids: ['kidA', …]`, `label`, `pairedAt` |
 | `pairRequests/{uid}` | 等待媽媽核可的裝置 | `code`（4 位數）, `label`, `createdAt` |
 | `members/{mom\|kidA\|kidB}` | 使用者（媽媽與小孩） | `role`, `name`, `emoji`, `color`, `goal: {title, emoji, points, rewardId}`（目標，只有媽媽能設定） |
-| `meta/settings` | 點數規則、科目 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]` |
+| `meta/settings` | 點數規則、科目、通知 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]`, `notify: {mom:{…}, kid:{…}, quietStart, quietEnd, dailyTime}` |
 | `private/pin` | 媽媽 PIN（PBKDF2 雜湊＋鹽） | `hash`, `salt`, `updatedAt` |
 | `tasks/{id}` | 進度（任務） | `kidId`, `date`（本週進度未排時為空字串）, `kind: weekly`（本週進度才有）, `week`／`weekEnd`（該週週一／週日）, `itemApproved`, `title`, `note`, `subject`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
 | `routines/{id}` | 每日固定事項 | `kidId`, `title`, `points`, `weekdays: [0-6]`, `active`, `order` |
@@ -20,6 +20,9 @@
 | `events/{id}` | 課程（非學校行程，沒有點數） | `kidId`, `title`, `subject`, `start`, `end`（HH:MM）, `repeat: weekly\|once`, `weekdays`, `from`, `until`, `date`, `skipDates`（只取消某一次）, `note` |
 | `rewards/{id}` | 兌換項目 | `title`, `emoji`, `cost`, `active` |
 | `redemptions/{id}` | 兌換申請與紀錄 | `kidId`, `rewardId`, `title`, `emoji`, `cost`, `status: pending\|approved\|rejected\|cancelled`, `momNote`, `createdAt`, `decidedAt` |
+| `pushTokens/{uid}` | 裝置的推播權杖（只有伺服器會讀） | `token`, `ua`, `updatedAt` |
+| `pushQueue/{id}` | 勿擾時段暫存的通知（伺服器專用） | `who`, `title`, `body`, `url`, `tag`, `createdAt` |
+| `meta/pushState` | 每日提醒是否已發（伺服器專用） | `lastDaily` |
 | `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
 | `threads/{kidId}/messages/{id}` | 留言 | `from: mom\|kid`, `text`（最多 500 字）, `createdAt` |
 
@@ -71,7 +74,10 @@
 | 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；本週進度只能改日期，而且只能排在同一週內，入帳後不能再改；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能改 `done`／`review`（只能改成 `pending` 或 `none`，不能自己核可，已入帳的不能取消）；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 28 項自動測試驗證上述規則。
+`tests/rules.test.mjs` 有 29 項自動測試驗證上述規則；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
+
+**推播**：每台裝置開啟通知後，把權杖寫到 `pushTokens/{自己的uid}`（只能寫自己的、任何用戶端都讀不到）。
+伺服器依 `devices` 判斷對象：媽媽的通知送到 `isMom` 的裝置；小孩的通知送到配對給該小孩、且不是媽媽的裝置。
 
 ## 索引
 

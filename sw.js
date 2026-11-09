@@ -1,7 +1,7 @@
-// Service Worker：快取 App 外殼，讓啟動更快、短暫斷線也能打開。
+// Service Worker：快取 App 外殼（離線也能打開）、顯示推播通知。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v5';
+const VERSION = 'v6';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
@@ -14,11 +14,23 @@ const SHELL = [
   './js/views/shell.js', './js/views/pair.js', './js/views/roles.js', './js/views/home.js',
   './js/views/checklist-panel.js', './js/views/checklist.js', './js/views/schedule.js',
   './js/views/points.js', './js/views/settings.js', './js/views/messages.js', './js/views/goal.js',
+  './js/push.js', './js/net.js', './js/views/push-card.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png'
 ];
 
+// Firebase SDK 也在安裝時一起存起來，第一次離線打開也能用
+const SDK = ['app', 'auth', 'firestore', 'messaging'].map((n) => `https://www.gstatic.com/firebasejs/12.19.0/firebase-${n}.js`);
+
 self.addEventListener('install', (e) => {
-  e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()));
+  e.waitUntil(caches.open(CACHE).then(async (c) => {
+    await c.addAll(SHELL);
+    await Promise.all(SDK.map((u) => c.add(u).catch(() => {})));
+  }));
+  // 不自動接手：等使用者在畫面上按「更新」（見 js/app.js）
+});
+
+self.addEventListener('message', (e) => {
+  if (e.data === 'skipWaiting') self.skipWaiting();
 });
 
 self.addEventListener('activate', (e) => {
@@ -52,4 +64,34 @@ self.addEventListener('fetch', (e) => {
       return res;
     }).catch(async () => (await caches.match(req, { ignoreSearch: true })) || caches.match('./index.html'))
   );
+});
+
+// ---------- 推播通知 ----------
+// 伺服器（functions/）送來的是 data 訊息：{ title, body, url, tag }
+self.addEventListener('push', (e) => {
+  let payload = {};
+  try { payload = e.data ? e.data.json() : {}; } catch { payload = { data: { title: '親子進度', body: e.data && e.data.text() } }; }
+  const d = payload.data || payload.notification || payload;
+  e.waitUntil(self.registration.showNotification(d.title || '親子進度', {
+    body: d.body || '',
+    tag: d.tag || undefined,
+    data: { url: d.url || '' },
+    icon: 'icons/icon-192.png',
+    badge: 'icons/icon-192.png'
+  }));
+});
+
+// 點通知 → 打開 App 並跳到相關頁面
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close();
+  const url = new URL('./' + ((e.notification.data && e.notification.data.url) || ''), self.registration.scope).href;
+  e.waitUntil(self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((list) => {
+    for (const c of list) {
+      if ('focus' in c) {
+        c.postMessage({ type: 'navigate', url });
+        return c.focus();
+      }
+    }
+    return self.clients.openWindow(url);
+  }));
 });
