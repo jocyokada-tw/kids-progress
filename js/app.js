@@ -12,9 +12,10 @@ import { mountChecklist } from './views/checklist.js';
 import { mountSchedule } from './views/schedule.js';
 import { mountPoints } from './views/points.js';
 import { mountSettings } from './views/settings.js';
+import { mountMessages } from './views/messages.js';
 
 const appEl = document.getElementById('app');
-const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, points: mountPoints, settings: mountSettings };
+const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, points: mountPoints, settings: mountSettings };
 
 let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
 let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }
@@ -40,7 +41,7 @@ function startFamilyWatchers() {
 function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; }
 
 /** 名字、頭像、顏色改變時，畫面要重畫 */
-const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color]));
+const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null);
 
 let devUnsub = null;
 function watchDevice(uid) {
@@ -56,11 +57,17 @@ function clearView() { view.cleanup && view.cleanup(); view = { key: null, clean
 function clearShell() { clearView(); shell && shell.cleanup(); shell = null; }
 function clearPage() { page.cleanup && page.cleanup(); page = { key: null, cleanup: null }; }
 
+/** 換一個全新的容器（舊容器上的事件監聽會一併移除） */
+function freshRoot() {
+  const host = document.createElement('div');
+  appEl.replaceChildren(host);
+  return host;
+}
+
 function showPage(key, mountFn) {
   if (page.key === key) return;
   clearShell(); clearPage();
-  appEl.innerHTML = '';
-  page = { key, cleanup: mountFn(appEl) || null };
+  page = { key, cleanup: mountFn(freshRoot()) || null };
 }
 
 function render() {
@@ -91,8 +98,7 @@ function render() {
   const shellKey = `${state.profile}|${state.device.isMom}|${(state.device.kids || []).join()}|${membersSig()}`;
   if (!shell || shell.key !== shellKey) {
     clearPage(); clearShell();
-    appEl.innerHTML = '';
-    shell = mountShell(appEl);
+    shell = mountShell(freshRoot());
     shell.key = shellKey;
     page.key = 'shell';
   }
@@ -101,10 +107,12 @@ function render() {
   const viewKey = location.hash + membersSig();
   if (view.key !== viewKey) {
     clearView();
-    shell.viewEl.innerHTML = '';
-    shell.viewEl.scrollTop = 0;
+    // 每個畫面用全新的容器，離開時事件監聽會跟著容器一起消失（避免重複觸發）
+    const host = document.createElement('div');
+    host.className = 'view-host';
+    shell.viewEl.replaceChildren(host);
     window.scrollTo(0, 0);
-    view = { key: viewKey, cleanup: VIEWS[route.name](shell.viewEl, route) || null };
+    view = { key: viewKey, cleanup: VIEWS[route.name](host, route) || null };
   } else {
     shell.refresh();
   }

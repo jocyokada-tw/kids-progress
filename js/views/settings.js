@@ -1,7 +1,8 @@
-import { state, setState, KIDS, COLORS, EMOJIS, member, memberName, memberColor } from '../state.js';
+import { state, setState, KIDS, COLORS, EMOJIS, member, memberName, memberColor, subjects } from '../state.js';
 import { esc, modal, toast, showError, chipChecks, chipRadios, confirmDialog } from '../ui.js';
 import { go } from '../router.js';
-import { saveMember, saveSettings, changePin, forgetMomOnThisDevice } from '../store/family.js';
+import { saveMember, saveSettings, saveGoal, changePin, forgetMomOnThisDevice } from '../store/family.js';
+import { watchRewards, saveReward, archiveReward } from '../store/rewards.js';
 import { watchRoutines, saveRoutine, archiveRoutine } from '../store/routines.js';
 import { watchPairRequests, approvePair, rejectPair, watchDevices, removeDevice } from '../store/devices.js';
 import { WEEKDAYS } from '../utils/date.js';
@@ -25,6 +26,15 @@ export function mountSettings(el) {
     <section class="card"><h2>📋 每日固定事項</h2>
       <p class="muted small">這些事項會依星期自動出現在每日清單，例如「刷牙」「閱讀 20 分鐘」。</p>
       <div id="sRoutines"></div></section>
+    <section class="card"><h2>🎁 兌換項目</h2>
+      <p class="muted small">孩子申請兌換時會先預留點數，媽媽核可後才正式扣點。</p>
+      <div id="sRewards"></div></section>
+    <section class="card"><h2>🎯 孩子的目標</h2>
+      <p class="muted small">和孩子討論好後在這裡設定，孩子的首頁會顯示還差多少點。</p>
+      <div id="sGoals"></div></section>
+    <section class="card"><h2>🎨 科目與顏色</h2>
+      <p class="muted small">用在進度與課程上。顏色可以點色塊修改。</p>
+      <div id="sSubjects"></div></section>
     <div class="grid-2">
       <section class="card"><h2>⭐ 點數規則</h2><div id="sRules"></div></section>
       <section class="card"><h2>🔒 安全</h2>
@@ -139,6 +149,99 @@ export function mountSettings(el) {
       <p class="muted small">要加入新裝置：在新裝置上打開這個網址（建議先「加入主畫面」再打開），按「產生配對代碼」，代碼就會出現在這裡。</p>`;
   }
 
+  // ---------- 兌換項目 ----------
+  let rewards = null;
+  const REWARD_EMOJIS = ['🎁', '🍦', '🎮', '📺', '🧸', '📚', '🍰', '🎬', '🛝', '🏊', '💰', '⏰', '🍕', '🎨', '⚽', '🌟'];
+  function drawRewards() {
+    $('#sRewards').innerHTML = `
+      ${rewards === null ? '<p class="empty">載入中…</p>' : rewards.length ? `<ul class="rows">${rewards.map((r) => `
+        <li><button class="row-btn" data-act="editReward" data-id="${r.id}">
+          <span class="req-emoji">${esc(r.emoji || '🎁')}</span><span class="grow"><strong>${esc(r.title)}</strong></span>
+          <span class="pts">${r.cost} 點</span></button></li>`).join('')}</ul>` : '<p class="empty">還沒有兌換項目</p>'}
+      <button class="btn btn-primary" data-act="newReward">＋ 新增兌換項目</button>`;
+  }
+  async function editReward(r) {
+    const res = await modal({
+      title: r ? '修改兌換項目' : '新增兌換項目',
+      html: `
+        <label class="field"><span>名稱</span><input name="title" maxlength="40" value="${esc(r?.title || '')}" placeholder="例如：看卡通 30 分鐘"></label>
+        <label class="field"><span>需要點數</span><input name="cost" type="number" inputmode="numeric" min="1" max="99999" value="${r?.cost ?? 20}"></label>
+        <div class="field"><span>圖示</span>${chipRadios('emoji', REWARD_EMOJIS.map((e) => ({ value: e, label: e })), r?.emoji || '🎁')}</div>`,
+      buttons: [...(r ? [{ id: 'delete', label: '刪除', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
+      validate: (id, d) => (id !== 'ok' ? null : !d.title ? '請輸入名稱' : !(Number(d.cost) >= 1) ? '點數要 1 以上' : null)
+    });
+    try {
+      if (res.id === 'delete') {
+        if (await confirmDialog(`刪除「${r.title}」？已兌換的紀錄會保留。`, { danger: true, okLabel: '刪除' })) await archiveReward(r.id);
+      } else if (res.id === 'ok') {
+        await saveReward(r?.id, { title: res.data.title, cost: Math.round(Number(res.data.cost)), emoji: res.data.emoji || '🎁' });
+        toast('已儲存', 'ok');
+      }
+    } catch (e) { showError(e); }
+  }
+
+  // ---------- 目標 ----------
+  function drawGoals() {
+    $('#sGoals').innerHTML = KIDS.map((k) => {
+      const g = member(k).goal;
+      return `<div class="row"><span class="avatar" style="background:${memberColor(k)}">${esc(member(k).emoji)}</span>
+        <span class="grow"><strong>${esc(memberName(k))}</strong><br>
+          <span class="muted small">${g ? `${esc(g.emoji || '🎯')} ${esc(g.title)}・${g.points} 點` : '尚未設定目標'}</span></span>
+        <button class="btn btn-sm btn-ghost" data-act="editGoal" data-kid="${k}">${g ? '修改' : '設定'}</button></div>`;
+    }).join('');
+  }
+  async function editGoal(kid) {
+    const g = member(kid).goal;
+    const opts = (rewards || []).map((r) => `<option value="${r.id}">${esc(r.emoji || '🎁')} ${esc(r.title)}（${r.cost} 點）</option>`).join('');
+    const res = await modal({
+      title: `${memberName(kid)}的目標`,
+      html: `
+        ${opts ? `<label class="field"><span>從兌換項目帶入（選填）</span><select class="select" name="pick"><option value="">— 自訂 —</option>${opts}</select></label>` : ''}
+        <label class="field"><span>目標名稱</span><input name="title" maxlength="40" value="${esc(g?.title || '')}" placeholder="例如：新的樂高"></label>
+        <label class="field"><span>需要累積到幾點</span><input name="points" type="number" inputmode="numeric" min="1" max="99999" value="${g?.points ?? 100}"></label>
+        <div class="field"><span>圖示</span>${chipRadios('emoji', ['🎯', ...REWARD_EMOJIS].map((e) => ({ value: e, label: e })), g?.emoji || '🎯')}</div>`,
+      buttons: [...(g ? [{ id: 'clear', label: '清除目標', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
+      onOpen: (w) => {
+        const pick = w.querySelector('select[name=pick]');
+        if (!pick) return;
+        pick.addEventListener('change', () => {
+          const r = rewards.find((x) => x.id === pick.value);
+          if (!r) return;
+          w.querySelector('input[name=title]').value = r.title;
+          w.querySelector('input[name=points]').value = r.cost;
+          const em = w.querySelector(`input[name=emoji][value="${CSS.escape(r.emoji || '🎁')}"]`);
+          if (em) em.checked = true;
+        });
+      },
+      validate: (id, d) => (id !== 'ok' ? null : !d.title ? '請輸入目標名稱' : !(Number(d.points) >= 1) ? '點數要 1 以上' : null)
+    });
+    try {
+      if (res.id === 'clear') { await saveGoal(kid, null); toast('已清除目標'); }
+      if (res.id === 'ok') {
+        await saveGoal(kid, { title: res.data.title, points: Math.round(Number(res.data.points)), emoji: res.data.emoji || '🎯', rewardId: res.data.pick || '' });
+        toast('目標已設定 🎯', 'ok');
+      }
+    } catch (e) { showError(e); }
+  }
+
+  // ---------- 科目與顏色 ----------
+  function drawSubjects() {
+    $('#sSubjects').innerHTML = `
+      <form id="subjForm">
+        <div id="subjRows">${subjects().map(subjRow).join('')}</div>
+        <div class="btn-row">
+          <button class="btn btn-ghost" type="button" data-act="addSubject">＋ 新增科目</button>
+          <button class="btn btn-primary" type="submit">儲存科目</button>
+        </div>
+      </form>`;
+  }
+  const subjRow = (s) => `
+    <div class="subj-row" data-id="${esc(s.id)}">
+      <input type="color" name="color" value="${esc(s.color)}" aria-label="顏色">
+      <input type="text" name="name" maxlength="12" value="${esc(s.name)}" aria-label="科目名稱">
+      <button class="icon-btn" type="button" data-act="removeSubject" aria-label="刪除">🗑️</button>
+    </div>`;
+
   // ---------- 事件 ----------
   el.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -157,6 +260,13 @@ export function mountSettings(el) {
         if (!(bonus >= 0 && def >= 0)) throw new Error('請輸入 0 以上的數字');
         await saveSettings({ bonusAllDone: bonus, defaultTaskPoints: def });
         toast('規則已儲存', 'ok');
+      } else if (f.id === 'subjForm') {
+        const list = [...f.querySelectorAll('.subj-row')].map((row) => ({
+          id: row.dataset.id, name: row.querySelector('[name=name]').value.trim(), color: row.querySelector('[name=color]').value
+        })).filter((x) => x.name);
+        if (new Set(list.map((x) => x.name)).size !== list.length) throw new Error('科目名稱不能重複');
+        await saveSettings({ subjects: list });
+        toast('科目已儲存', 'ok');
       } else if (f.classList.contains('pair-req')) {
         if (!d.role) throw new Error('請選擇這台裝置給誰用');
         const req = requests.find((r) => r.id === f.dataset.id);
@@ -172,6 +282,14 @@ export function mountSettings(el) {
     try {
       switch (b.dataset.act) {
         case 'rkid': routineKid = b.dataset.kid; subRoutines(); break;
+        case 'newReward': editReward(null); break;
+        case 'editReward': editReward(rewards.find((r) => r.id === b.dataset.id)); break;
+        case 'editGoal': editGoal(b.dataset.kid); break;
+        case 'addSubject':
+          $('#subjRows').insertAdjacentHTML('beforeend', subjRow({ id: 's' + Date.now().toString(36), name: '', color: '#7c6cf0' }));
+          $('#subjRows .subj-row:last-child input[name=name]').focus();
+          break;
+        case 'removeSubject': b.closest('.subj-row').remove(); break;
         case 'newRoutine': editRoutine(null); break;
         case 'editRoutine': editRoutine(routines.find((r) => r.id === b.dataset.id)); break;
         case 'rejectReq': await rejectPair(b.dataset.id); break;
@@ -202,8 +320,9 @@ export function mountSettings(el) {
     } catch (err) { showError(err); }
   });
 
-  drawKids(); drawRules(); subRoutines();
+  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards();
   const unsubs = [
+    watchRewards((l) => { rewards = l; drawRewards(); }, (e) => showError(e, '讀取兌換項目')),
     watchPairRequests((l) => { requests = l; drawRequests(); }, (e) => showError(e, '讀取配對申請')),
     watchDevices((l) => { devices = l; drawDevices(); }, (e) => showError(e, '讀取裝置'))
   ];

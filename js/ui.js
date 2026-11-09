@@ -120,3 +120,10 @@ export function popPoints(anchor, text) {
   document.body.appendChild(p);
   setTimeout(() => p.remove(), 1200);
 }
+
+/** 科目選擇（帶顏色的單選小方塊）。list: [{id, name, color}] */
+export function subjectChips(name, list, selected = '') {
+  return `<div class="chips">${list.map((s) => `
+    <label class="chip subj"><input type="radio" name="${name}" value="${esc(s.id)}" ${selected === s.id ? 'checked' : ''}>
+      <span style="--s:${esc(s.color)}"><i class="dot"></i>${esc(s.name)}</span></label>`).join('')}</div>`;
+}

@@ -1,11 +1,14 @@
-import { state, isMom, member } from '../state.js';
+import { isMom, member, subjectOf } from '../state.js';
 import { esc, showError } from '../ui.js';
 import { go } from '../router.js';
 import { watchLedger } from '../store/ledger.js';
 import { watchPendingItems } from '../store/checklist.js';
 import { watchTasksRange, watchPendingTasks } from '../store/tasks.js';
-import { todayStr, addDays, labelMD, labelRelative } from '../utils/date.js';
+import { todayStr, addDays, range, labelMD, labelRelative } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
+import { watchEvents, eventsOn } from '../store/events.js';
+import { goalHtml } from './goal.js';
+import { watchPendingRedemptions } from '../store/rewards.js';
 
 export const TASK_STATUS = {
   pending: '<span class="tag tag-wait">待媽媽確認</span>',
@@ -26,6 +29,7 @@ export function mountHome(el, { kid }) {
       <div class="hero-sub" id="pendingPts"></div>
       <div id="momTodo"></div>
     </section>
+    <section class="card" id="goal" hidden></section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><h2>今日清單 <span class="muted small">${labelMD(today)}</span></h2>
@@ -40,7 +44,23 @@ export function mountHome(el, { kid }) {
     </div>`;
 
   const $ = (s) => el.querySelector(s);
-  let pendingItems = [], pendingTasks = [];
+  let tasks = null, events = null;
+  // 一個月內的行程：課程（有時間、無點數）＋進度
+  function drawAgenda() {
+    if (!tasks || !events) return;
+    const rows = range(today, 31).map((d) => {
+      const evs = eventsOn(events, d);
+      const ts = tasks.filter((t) => t.date === d && t.status !== 'rejected');
+      if (!evs.length && !ts.length) return '';
+      const rel = labelRelative(d);
+      return `<li><div class="agenda-date">${labelMD(d)}${rel ? `<span class="rel">${rel}</span>` : ''}</div><ul>
+        ${evs.map((e) => `<li class="agenda-item"><i class="dot" style="--s:${esc(subjectOf(e.subject).color)}"></i> <strong>${esc(e.start || '')}</strong> ${esc(e.title)}</li>`).join('')}
+        ${ts.map((t) => `<li class="agenda-item"><i class="dot" style="--s:${esc(subjectOf(t.subject).color)}"></i> ${esc(t.title)} ${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}</li>`).join('')}
+      </ul></li>`;
+    }).join('');
+    $('#month').innerHTML = rows ? `<ul class="agenda">${rows}</ul>` : '<p class="empty">接下來一個月還沒有安排 ☀️</p>';
+  }
+  let pendingItems = [], pendingTasks = [], pendingRedeem = [];
   const drawPending = () => {
     const pts = pendingItems.reduce((s, i) => s + (i.points || 0), 0);
     $('#pendingPts').textContent = pts ? `另有 ${pts} 點等待媽媽核可` : '';
@@ -48,24 +68,27 @@ export function mountHome(el, { kid }) {
       const parts = [];
       if (pendingItems.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/checklist">✅ ${pendingItems.length} 項待核可</button>`);
       if (pendingTasks.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/schedule">📅 ${pendingTasks.length} 項進度待確認</button>`);
+      if (pendingRedeem.length) parts.push(`<button class="todo-pill" data-go="/k/${kid}/points">🎁 ${pendingRedeem.length} 項兌換申請</button>`);
       $('#momTodo').innerHTML = parts.length ? `<div class="todo-row">${parts.join('')}</div>` : '';
     }
   };
 
+  const goal = member(kid).goal;
   const unsubs = [
-    watchLedger(kid, ({ balance }) => { $('#balance').textContent = balance; }, (e) => showError(e, '讀取點數')),
+    watchLedger(kid, ({ balance }) => {
+      $('#balance').textContent = balance;
+      const g = goalHtml(goal, balance);
+      $('#goal').hidden = !g;
+      $('#goal').innerHTML = g;
+    }, (e) => showError(e, '讀取點數')),
     watchPendingItems(kid, (l) => { pendingItems = l; drawPending(); }, (e) => showError(e, '讀取待核可')),
-    watchTasksRange(kid, today, addDays(today, 30), (tasks) => {
-      const list = tasks.filter((t) => t.status !== 'rejected');
-      if (!list.length) { $('#month').innerHTML = '<p class="empty">接下來一個月還沒有安排 ☀️</p>'; return; }
-      const byDate = new Map();
-      list.forEach((t) => { if (!byDate.has(t.date)) byDate.set(t.date, []); byDate.get(t.date).push(t); });
-      $('#month').innerHTML = `<ul class="agenda">${[...byDate].map(([d, ts]) => `
-        <li><div class="agenda-date">${labelMD(d)}${labelRelative(d) ? `<span class="rel">${labelRelative(d)}</span>` : ''}</div>
-          <ul>${ts.map((t) => `<li class="agenda-item">${esc(t.title)} ${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}</li>`).join('')}</ul></li>`).join('')}</ul>`;
-    }, (e) => showError(e, '讀取行程'))
+    watchTasksRange(kid, today, addDays(today, 30), (t) => { tasks = t; drawAgenda(); }, (e) => showError(e, '讀取行程')),
+    watchEvents(kid, (list) => { events = list; drawAgenda(); }, (e) => showError(e, '讀取課程'))
   ];
-  if (isMom()) unsubs.push(watchPendingTasks(kid, (l) => { pendingTasks = l; drawPending(); }, (e) => showError(e)));
+  if (isMom()) {
+    unsubs.push(watchPendingTasks(kid, (l) => { pendingTasks = l; drawPending(); }, (e) => showError(e)));
+    unsubs.push(watchPendingRedemptions(kid, (l) => { pendingRedeem = l; drawPending(); }, (e) => showError(e)));
+  }
 
   el.addEventListener('click', (e) => {
     const b = e.target.closest('[data-go]');

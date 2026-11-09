@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// 親子進度與點數：Firestore 安全規則（第一階段）
+// 親子進度與點數：Firestore 安全規則（第一、二階段）
 //
 // 身分模型（方案 A：匿名登入＋裝置配對）
 // - 每台裝置用 Firebase 匿名登入取得一個 uid。
@@ -76,7 +76,7 @@ service cloud.firestore {
 
       // ---------- 進度（任務） ----------
       function kidTaskShape(d) {
-        return d.keys().hasOnly(['kidId', 'date', 'title', 'note', 'points', 'createdBy', 'status', 'momNote', 'createdAt', 'updatedAt'])
+        return d.keys().hasOnly(['kidId', 'date', 'title', 'note', 'subject', 'points', 'createdBy', 'status', 'momNote', 'createdAt', 'updatedAt'])
           && d.createdBy == 'kid' && d.status == 'pending' && d.points == 0
           && isDate(d.date) && d.title is string && d.title.size() > 0 && d.title.size() <= 100
           && isText(d.note, 500);
@@ -121,7 +121,7 @@ service cloud.firestore {
         allow list: if isMom() || canKid(resource.data.kidId);
         allow create: if isMom()
           || (canKid(request.resource.data.kidId)
-              && request.resource.data.keys().hasOnly(['kidId', 'date', 'sourceType', 'sourceId', 'title', 'points', 'order', 'done', 'doneAt', 'review', 'returnNote', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['kidId', 'date', 'sourceType', 'sourceId', 'title', 'subject', 'points', 'order', 'done', 'doneAt', 'review', 'returnNote', 'createdAt'])
               && itemId == request.resource.data.kidId + '_' + request.resource.data.date + '_' + request.resource.data.sourceId
               && isDate(request.resource.data.date)
               && request.resource.data.done == false && request.resource.data.review == 'none'
@@ -146,7 +146,56 @@ service cloud.firestore {
         allow update, delete: if false;
       }
 
-      // （第二階段會在這裡加入 rewards、redemptions、threads/messages 的規則）
+      // ---------- 課程（非學校行程，沒有點數）：媽媽設定，小孩只能看 ----------
+      match /events/{eventId} {
+        allow read: if isMom() || canKid(resource.data.kidId);
+        allow write: if isMom();
+      }
+
+      // ---------- 兌換項目：媽媽設定，所有已配對裝置可讀 ----------
+      match /rewards/{rewardId} {
+        allow read: if paired();
+        allow write: if isMom();
+      }
+
+      // ---------- 兌換申請 ----------
+      // 小孩只能以「兌換項目的實際點數」提出申請，並只能取消自己申請中的項目；核可（扣點）只有媽媽能做。
+      match /redemptions/{rid} {
+        allow read: if isMom() || canKid(resource.data.kidId);
+        allow create: if isMom()
+          || (canKid(request.resource.data.kidId)
+              && request.resource.data.keys().hasOnly(['kidId', 'rewardId', 'title', 'emoji', 'cost', 'status', 'momNote', 'createdAt', 'decidedAt'])
+              && request.resource.data.status == 'pending'
+              && request.resource.data.momNote == ''
+              && get(/databases/$(database)/documents/families/$(fid)/rewards/$(request.resource.data.rewardId)).data.cost == request.resource.data.cost
+              && get(/databases/$(database)/documents/families/$(fid)/rewards/$(request.resource.data.rewardId)).data.active == true);
+        allow update: if isMom()
+          || (canKid(resource.data.kidId) && resource.data.status == 'pending'
+              && request.resource.data.status == 'cancelled'
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'decidedAt']));
+        allow delete: if false;
+      }
+
+      // ---------- 留言板 ----------
+      match /threads/{kidId} {
+        // 已讀時間：小孩裝置只能更新 kidReadAt
+        allow read: if canKid(kidId);
+        allow create: if isMom() || (canKid(kidId) && request.resource.data.keys().hasOnly(['kidReadAt']));
+        allow update: if isMom() || (canKid(kidId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['kidReadAt']));
+        allow delete: if false;
+
+        match /messages/{msgId} {
+          allow read: if canKid(kidId);
+          // 小孩裝置只能以「小孩」身分發言；訊息不能修改或刪除
+          allow create: if (isMom() || (canKid(kidId) && request.resource.data.from == 'kid'))
+            && request.resource.data.keys().hasOnly(['from', 'text', 'createdAt'])
+            && request.resource.data.from in ['mom', 'kid']
+            && request.resource.data.text is string
+            && request.resource.data.text.size() > 0 && request.resource.data.text.size() <= 500
+            && request.resource.data.createdAt == request.time;
+          allow update, delete: if false;
+        }
+      }
     }
   }
 }

@@ -19,11 +19,11 @@ export function watchPendingTasks(kidId, cb, onErr) {
 }
 
 /** 一次在多個日期建立同樣的進度。媽媽建立的直接是 approved；小孩建立的是 pending、點數由媽媽決定 */
-export async function createTasks(kidId, dates, { title, note, points }, asMom) {
+export async function createTasks(kidId, dates, { title, note, points, subject }, asMom) {
   const b = writeBatch(db);
   for (const date of dates) {
     b.set(doc(fcol('tasks')), {
-      kidId, date, title, note: note || '',
+      kidId, date, title, note: note || '', subject: subject || '',
       points: asMom ? points : 0,
       createdBy: asMom ? 'mom' : 'kid',
       status: asMom ? 'approved' : 'pending',
@@ -35,8 +35,8 @@ export async function createTasks(kidId, dates, { title, note, points }, asMom) 
 }
 
 /** 小孩修改自己尚未確認的進度 */
-export const kidUpdateTask = (id, { title, note, date }) =>
-  updateDoc(fdoc('tasks', id), { title, note, date, updatedAt: serverTimestamp() });
+export const kidUpdateTask = (id, { title, note, date, subject }) =>
+  updateDoc(fdoc('tasks', id), { title, note, date, subject: subject || '', updatedAt: serverTimestamp() });
 
 /** 媽媽確認／調整（可同時改內容、點數、留建議） */
 export const momSaveTask = (id, patch, status) =>

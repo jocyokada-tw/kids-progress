@@ -13,9 +13,9 @@ function expectedFor(kidId, date, routines, tasks) {
   const wd = weekday(date);
   const list = [
     ...routines.filter((r) => r.active !== false && (r.weekdays || []).includes(wd))
-      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i })),
+      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '' })),
     ...tasks.filter((t) => t.status === 'approved')
-      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i }))
+      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '' }))
   ];
   return new Map(list.map((e) => [itemId(kidId, date, e.sourceId), e]));
 }
@@ -26,7 +26,7 @@ async function createItem(id, kidId, date, e) {
     const s = await tx.get(ref);
     if (s.exists()) return;
     tx.set(ref, {
-      kidId, date, sourceType: e.sourceType, sourceId: e.sourceId, title: e.title, points: e.points, order: e.order,
+      kidId, date, sourceType: e.sourceType, sourceId: e.sourceId, title: e.title, points: e.points, order: e.order, subject: e.subject,
       done: false, doneAt: null, review: 'none', returnNote: '', createdAt: serverTimestamp()
     });
   });
@@ -62,9 +62,9 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
       const e = expected.get(it.id);
       if (!e) {
         if (!tried.has('d' + it.id)) { tried.add('d' + it.id); deleteDoc(fdoc('items', it.id)).catch(onError); }
-      } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order) {
-        const key = `u${it.id}|${e.title}|${e.points}|${e.order}`;
-        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order }).catch(onError); }
+      } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
+        const key = `u${it.id}|${e.title}|${e.points}|${e.order}|${e.subject}`;
+        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order, subject: e.subject }).catch(onError); }
       }
     }
   };

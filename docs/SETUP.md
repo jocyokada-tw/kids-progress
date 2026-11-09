@@ -96,6 +96,11 @@ firebase deploy --only firestore --project 你的專案ID
 
 ---
 
+## 更新版本時
+
+- **`firestore.rules` 有改動時**（例如第二階段新增留言、兌換），要重新到 Firestore「規則」分頁貼上並發布，否則新功能會出現「沒有權限」。
+- `sw.js` 的 `VERSION` 改大一號後，手機上把 App 完全關掉再打開，就會換成新版。
+
 ## 常見問題
 
 - **畫面顯示「尚未設定 Firebase」**：`config.js` 沒填好或沒 push。
@@ -122,7 +127,7 @@ npx firebase-tools emulators:start --project demo-kids
 
 然後打開 `http://127.0.0.1:5173/?emulator`。
 
-安全規則自動測試（17 項，涵蓋配對、任務、清單、流水帳的權限）：
+安全規則自動測試（25 項，涵蓋配對、任務、清單、流水帳、課程、兌換、留言的權限）：
 
 ```bash
 cd tests && npm install && npm run test:rules

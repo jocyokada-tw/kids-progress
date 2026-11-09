@@ -3,11 +3,14 @@ import { go } from '../router.js';
 import { esc, showError } from '../ui.js';
 import { watchPendingTasks } from '../store/tasks.js';
 import { watchPendingItems } from '../store/checklist.js';
+import { watchPendingRedemptions } from '../store/rewards.js';
+import { watchThread, watchMessages, unreadCount } from '../store/messages.js';
 
 const TABS = [
   { name: 'home', icon: '🏠', label: '首頁' },
   { name: 'checklist', icon: '✅', label: '清單' },
   { name: 'schedule', icon: '📅', label: '排程' },
+  { name: 'messages', icon: '💬', label: '留言' },
   { name: 'points', icon: '⭐', label: '點數' }
 ];
 
@@ -25,13 +28,19 @@ export function mountShell(root) {
   const viewEl = root.querySelector('.view');
   let route = null;
 
-  // 媽媽：即時顯示每個小孩有幾項待處理
-  const badges = Object.fromEntries(KIDS.map((k) => [k, { tasks: 0, items: 0 }]));
+  // 即時顯示待處理數量：媽媽看兩個小孩的待確認／待核可／兌換申請／未讀留言；小孩只看自己的未讀留言
+  const badges = Object.fromEntries(KIDS.map((k) => [k, { tasks: 0, items: 0, redeem: 0, unread: 0 }]));
   const unsubs = [];
-  if (isMom()) {
-    for (const k of KIDS) {
+  const me = isMom() ? 'mom' : 'kid';
+  for (const k of (isMom() ? KIDS : [state.profile])) {
+    let thread = {}, msgs = [];
+    const upd = () => { badges[k].unread = unreadCount(msgs, thread, me); draw(); };
+    unsubs.push(watchThread(k, (t) => { thread = t; upd(); }, (e) => showError(e, '讀取留言')));
+    unsubs.push(watchMessages(k, (m) => { msgs = m; upd(); }, (e) => showError(e, '讀取留言'), 50));
+    if (isMom()) {
       unsubs.push(watchPendingTasks(k, (l) => { badges[k].tasks = l.length; draw(); }, (e) => showError(e, '讀取待確認')));
       unsubs.push(watchPendingItems(k, (l) => { badges[k].items = l.length; draw(); }, (e) => showError(e, '讀取待核可')));
+      unsubs.push(watchPendingRedemptions(k, (l) => { badges[k].redeem = l.length; draw(); }, (e) => showError(e, '讀取兌換申請')));
     }
   }
 
@@ -50,7 +59,8 @@ export function mountShell(root) {
       </button>
       ${isMom() ? `<div class="kid-switch" role="tablist">${KIDS.map((k) => {
         const m = member(k);
-        const n = badges[k].tasks + badges[k].items;
+        const b = badges[k];
+        const n = b.tasks + b.items + b.redeem + b.unread;
         const tab = route.name === 'settings' ? 'home' : route.name;
         return `<button role="tab" class="kid-chip ${k === route.kid ? 'active' : ''}" style="--c:${memberColor(k)}" data-go="/k/${k}/${tab}">
           <span>${esc(m.emoji)}</span><span class="kid-chip-name">${esc(m.name)}</span>${badge(n)}</button>`;
@@ -60,8 +70,11 @@ export function mountShell(root) {
     tabsEl.innerHTML = tabs.map((t) => {
       const path = t.name === 'settings' ? '/settings' : `/k/${kid}/${t.name}`;
       let n = 0;
-      if (isMom() && t.name === 'checklist') n = badges[kid].items;
-      if (isMom() && t.name === 'schedule') n = badges[kid].tasks;
+      const b = badges[isMom() ? kid : state.profile] || {};
+      if (isMom() && t.name === 'checklist') n = b.items;
+      if (isMom() && t.name === 'schedule') n = b.tasks;
+      if (isMom() && t.name === 'points') n = b.redeem;
+      if (t.name === 'messages') n = b.unread;
       return `<button class="tab ${route.name === t.name ? 'active' : ''}" data-go="${path}">
         <span class="tab-icon">${t.icon}</span><span class="tab-label">${t.label}</span>${badge(n)}</button>`;
     }).join('');
