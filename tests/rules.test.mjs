@@ -279,3 +279,16 @@ test('本週進度：不能排到別週、不能改點數或內容、入帳後�
 test('一般進度（非本週）小孩仍然不能改日期', async () => {
   await assertFails(updateDoc(doc(db('a'), F, 'tasks/t1'), { date: '2026-11-09' }));
 });
+
+// ---------- 推播權杖 ----------
+test('推播權杖：已配對裝置只能寫自己的，任何人都讀不到', async () => {
+  const tok = { token: 'abc', ua: 'iPhone', updatedAt: serverTimestamp() };
+  await assertSucceeds(setDoc(doc(db('a'), F, 'pushTokens/a'), tok));
+  await assertFails(setDoc(doc(db('a'), F, 'pushTokens/mom'), tok));
+  await assertFails(setDoc(doc(db('stranger'), F, 'pushTokens/stranger'), tok));
+  await assertFails(setDoc(doc(db('a'), F, 'pushTokens/a'), { ...tok, extra: 1 }));
+  await assertFails(getDoc(doc(db('a'), F, 'pushTokens/a')));
+  await assertFails(getDoc(doc(db('mom'), F, 'pushTokens/a')));
+  await assertSucceeds(deleteDoc(doc(db('a'), F, 'pushTokens/a')));
+  await assertFails(getDocs(collection(db('mom'), F, 'pushQueue')));
+});

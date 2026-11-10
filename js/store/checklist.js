@@ -52,7 +52,7 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
 
     const have = new Map(items.map((it) => [it.id, it]));
     for (const [id, e] of expected) {
-      if (have.has(id) || tried.has('c' + id)) continue;
+      if (have.has(id) || tried.has('c' + id) || !navigator.onLine) continue; // 離線時不建立（需要交易確認）
       tried.add('c' + id);
       createItem(id, kidId, date, e).catch((err) => console.warn('create item', id, err));
     }

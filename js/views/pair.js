@@ -3,6 +3,7 @@ import { esc, showError } from '../ui.js';
 import { familyExists, setupFamily } from '../store/family.js';
 import { requestPairing, watchMyPairRequest, cancelPairRequest } from '../store/devices.js';
 import { isValidPin } from '../utils/crypto.js';
+import { needOnline } from '../net.js';
 
 const guessLabel = () => {
   const ua = navigator.userAgent;
@@ -55,6 +56,7 @@ export function mountPair(el) {
         if (!isValidPin(d.pin)) return fail('PIN 必須是 4～6 位數字');
         if (d.pin !== d.pin2) return fail('兩次輸入的 PIN 不一樣');
         const btn = form.querySelector('button[type=submit]');
+        if (!navigator.onLine) return fail('需要網路連線才能建立家庭');
         btn.disabled = true; btn.textContent = '建立中…';
         try {
           await setupFamily({ uid: state.uid, pin: d.pin, kidAName: d.kidA.trim(), kidBName: d.kidB.trim() });
@@ -79,7 +81,7 @@ export function mountPair(el) {
         e.preventDefault();
         const label = new FormData(e.target).get('label').trim() || guessLabel();
         note = '';
-        try { await requestPairing(state.uid, label); } catch (ex) { showError(ex, '申請失敗'); }
+        try { needOnline('配對'); await requestPairing(state.uid, label); } catch (ex) { showError(ex, '申請失敗'); }
       });
       return;
     }

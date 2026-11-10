@@ -13,6 +13,8 @@ import { mountSchedule } from './views/schedule.js';
 import { mountPoints } from './views/points.js';
 import { mountSettings } from './views/settings.js';
 import { mountMessages } from './views/messages.js';
+import { initNet, showUpdateBar } from './net.js';
+import { refreshPushToken } from './push.js';
 
 const appEl = document.getElementById('app');
 const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, points: mountPoints, settings: mountSettings };
@@ -35,10 +37,10 @@ function startFamilyWatchers() {
   stopFamilyWatchers();
   familyUnsubs = [
     watchMembers((members) => setState({ members, membersReady: true }), (e) => { showError(e, '讀取成員'); setState({ membersReady: true }); }),
-    watchSettings((s) => setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s } }), (e) => showError(e, '讀取設定'))
+    watchSettings((s) => setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s }, settingsReady: true }), (e) => { showError(e, '讀取設定'); setState({ settingsReady: true }); })
   ];
 }
-function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; }
+function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; state.settingsReady = false; }
 
 /** 名字、頭像、顏色改變時，畫面要重畫 */
 const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null);
@@ -47,7 +49,7 @@ let devUnsub = null;
 function watchDevice(uid) {
   devUnsub && devUnsub();
   devUnsub = watchMyDevice(uid, (dev) => {
-    if (dev && !state.device) startFamilyWatchers();
+    if (dev && !state.device) { startFamilyWatchers(); refreshPushToken(); }
     if (!dev) stopFamilyWatchers();
     setState(dev ? { device: dev } : { device: null, profile: null });
   }, (e) => { showError(e, '讀取裝置'); setState({ device: null }); });
@@ -72,7 +74,7 @@ function showPage(key, mountFn) {
 
 function render() {
   const route = parseRoute();
-  if (!state.authReady || state.device === undefined || (state.device && !state.membersReady)) {
+  if (!state.authReady || state.device === undefined || (state.device && !(state.membersReady && state.settingsReady))) {
     return showPage('splash', (el) => { el.innerHTML = `<div class="splash"><div class="splash-logo">⭐</div><p>載入中…</p></div>`; });
   }
   if (!state.device) return showPage('pair', mountPair);
@@ -127,10 +129,33 @@ function renderNotConfigured() {
     </div></div>`;
 }
 
+/** Service Worker：有新版本時顯示「更新」，按下後才換版並重新載入 */
+function registerSW() {
+  let updating = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => { if (updating) location.reload(); });
+  // 點了通知、App 已經開著時，跳到通知對應的頁面
+  navigator.serviceWorker.addEventListener('message', (e) => {
+    if (e.data && e.data.type === 'navigate') location.href = e.data.url;
+  });
+  navigator.serviceWorker.register('./sw.js').then((reg) => {
+    const offer = (w) => showUpdateBar(() => { updating = true; w.postMessage('skipWaiting'); });
+    if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
+    reg.addEventListener('updatefound', () => {
+      const w = reg.installing;
+      w && w.addEventListener('statechange', () => {
+        if (w.state === 'installed' && navigator.serviceWorker.controller) offer(w);
+      });
+    });
+    // App 回到前景時檢查有沒有新版
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') reg.update().catch(() => {});
+    });
+  }).catch((e) => console.warn('SW', e));
+}
+
 function boot() {
-  if ('serviceWorker' in navigator && !location.search.includes('nosw')) {
-    navigator.serviceWorker.register('./sw.js').catch((e) => console.warn('SW', e));
-  }
+  initNet();
+  if ('serviceWorker' in navigator && !location.search.includes('nosw')) registerSW();
   if (!configured) return renderNotConfigured();
 
   onAuthStateChanged(auth, (user) => {

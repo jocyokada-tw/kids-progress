@@ -1,0 +1,12 @@
+{
+  "name": "kids-progress-functions",
+  "private": true,
+  "type": "module",
+  "description": "推播通知（Firebase Cloud Functions）。網頁本身不需要建置，這裡只在部署通知功能時使用。",
+  "main": "index.js",
+  "engines": { "node": "22" },
+  "dependencies": {
+    "firebase-admin": "14.5.0",
+    "firebase-functions": "7.4.0"
+  }
+}

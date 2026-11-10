@@ -1,4 +1,5 @@
-import { state, setState, KIDS, COLORS, EMOJIS, member, memberName, memberColor, subjects } from '../state.js';
+import { state, setState, KIDS, COLORS, EMOJIS, member, memberName, memberColor, subjects, notifySettings } from '../state.js';
+import { mountPushCard } from './push-card.js';
 import { esc, modal, toast, showError, chipChecks, chipRadios, confirmDialog } from '../ui.js';
 import { go } from '../router.js';
 import { saveMember, saveSettings, saveGoal, changePin, forgetMomOnThisDevice } from '../store/family.js';
@@ -7,6 +8,7 @@ import { watchRoutines, saveRoutine, archiveRoutine } from '../store/routines.js
 import { watchPairRequests, approvePair, rejectPair, watchDevices, removeDevice } from '../store/devices.js';
 import { WEEKDAYS } from '../utils/date.js';
 import { isValidPin } from '../utils/crypto.js';
+import { needOnline } from '../net.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const wdLabel = (wds) => {
@@ -22,6 +24,9 @@ export function mountSettings(el) {
   let routines = null, requests = [], devices = [];
   el.innerHTML = `
     <div class="page-head"><h1>⚙️ 設定</h1></div>
+    <section class="card"><h2>🔔 通知</h2>
+      <div id="sPushDevice"></div><hr>
+      <div id="sNotify"></div></section>
     <section class="card"><h2>🔗 裝置管理</h2><div id="sReq"></div><div id="sDev"></div></section>
     <section class="card"><h2>📋 每日固定事項</h2>
       <p class="muted small">這些事項會依星期自動出現在每日清單，例如「刷牙」「閱讀 20 分鐘」。</p>
@@ -242,6 +247,38 @@ export function mountSettings(el) {
       <button class="icon-btn" type="button" data-act="removeSubject" aria-label="刪除">🗑️</button>
     </div>`;
 
+  // ---------- 通知 ----------
+  const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
+  const timeSelect = (name, val) => `<select class="select" name="${name}">${HALF_HOURS.map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  const sw = (name, on, label) => `<label class="switch-row"><span>${label}</span><span class="switch"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}><span></span></span></label>`;
+  function drawNotify() {
+    const n = notifySettings();
+    $('#sNotify').innerHTML = `
+      <form id="notifyForm">
+        <h3 class="small muted">媽媽會收到</h3>
+        ${sw('mom.kidTask', n.mom.kidTask, '📅 孩子自己安排了進度')}
+        ${sw('mom.itemDone', n.mom.itemDone, '✅ 孩子勾選完成，等你核可（同一天合併成一則）')}
+        ${sw('mom.redeem', n.mom.redeem, '🎁 孩子申請兌換')}
+        ${sw('mom.message', n.mom.message, '💬 孩子的留言')}
+        <h3 class="small muted">孩子會收到</h3>
+        ${sw('kid.taskReview', n.kid.taskReview, '✅ 進度被確認或退回（含建議）')}
+        ${sw('kid.itemReview', n.kid.itemReview, '⭐ 點數入帳、被退回、額外獎勵')}
+        ${sw('kid.redeem', n.kid.redeem, '🎁 兌換核可或退回')}
+        ${sw('kid.message', n.kid.message, '💬 媽媽的留言')}
+        ${sw('kid.weekly', n.kid.weekly, '📦 媽媽新增了本週進度')}
+        ${sw('kid.daily', n.kid.daily, '🌙 每日提醒：今天還沒完成的項目')}
+        <div class="field-row" style="margin-top:12px">
+          <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>勿擾時段：從</span>${timeSelect('quietStart', n.quietStart)}</label>
+          <label class="field"><span>到</span>${timeSelect('quietEnd', n.quietEnd)}</label>
+        </div>
+        <p class="muted small">勿擾時段內的通知會先保留，時段結束後再一起送出（同類只送最新一則）。</p>
+        <button class="btn btn-primary" type="submit">儲存通知設定</button>
+      </form>`;
+  }
+
   // ---------- 事件 ----------
   el.addEventListener('submit', async (e) => {
     e.preventDefault();
@@ -260,6 +297,13 @@ export function mountSettings(el) {
         if (!(bonus >= 0 && def >= 0)) throw new Error('請輸入 0 以上的數字');
         await saveSettings({ bonusAllDone: bonus, defaultTaskPoints: def });
         toast('規則已儲存', 'ok');
+      } else if (f.id === 'notifyForm') {
+        const fd = new FormData(f);
+        const n = notifySettings();
+        const notify = { mom: {}, kid: {}, quietStart: fd.get('quietStart'), quietEnd: fd.get('quietEnd'), dailyTime: fd.get('dailyTime') };
+        for (const g of ['mom', 'kid']) for (const k of Object.keys(n[g])) notify[g][k] = fd.get(`${g}.${k}`) === 'on';
+        await saveSettings({ notify });
+        toast('通知設定已儲存', 'ok');
       } else if (f.id === 'subjForm') {
         const list = [...f.querySelectorAll('.subj-row')].map((row) => ({
           id: row.dataset.id, name: row.querySelector('[name=name]').value.trim(), color: row.querySelector('[name=color]').value
@@ -269,6 +313,7 @@ export function mountSettings(el) {
         toast('科目已儲存', 'ok');
       } else if (f.classList.contains('pair-req')) {
         if (!d.role) throw new Error('請選擇這台裝置給誰用');
+        needOnline('配對');
         const req = requests.find((r) => r.id === f.dataset.id);
         await approvePair(f.dataset.id, { ...roleOf(d.role), label: req?.label || '裝置' });
         toast('配對完成 🎉', 'ok');
@@ -320,7 +365,8 @@ export function mountSettings(el) {
     } catch (err) { showError(err); }
   });
 
-  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards();
+  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify();
+  mountPushCard($('#sPushDevice'));
   const unsubs = [
     watchRewards((l) => { rewards = l; drawRewards(); }, (e) => showError(e, '讀取兌換項目')),
     watchPairRequests((l) => { requests = l; drawRequests(); }, (e) => showError(e, '讀取配對申請')),

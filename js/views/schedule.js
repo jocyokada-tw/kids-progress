@@ -90,8 +90,12 @@ export function mountSchedule(el, { kid }) {
   function trayHtml(end) {
     const list = unscheduled.filter((t) => isOverdue(t) || (t.week <= end && t.weekEnd >= start));
     if (!list.length) return '';
+    // 依科目排序（照設定中的科目順序，「其他」排最後），同科目再依新增順序
+    const order = new Map(subjects().map((x, i) => [x.id, i]));
+    const rank = (t) => (order.has(t.subject) ? order.get(t.subject) : 999);
     const byWeek = new Map();
     list.forEach((t) => { if (!byWeek.has(t.week)) byWeek.set(t.week, []); byWeek.get(t.week).push(t); });
+    byWeek.forEach((ts) => ts.sort((a, b) => rank(a) - rank(b)));
     return `
       <section class="card tray">
         <h2>📦 ${mom ? '還沒排日期的本週進度' : '本週待安排'} <span class="badge">${list.length}</span></h2>

@@ -6,6 +6,7 @@ import { watchPendingItems } from '../store/checklist.js';
 import { watchRewards, watchRedemptions, requestRedemption, cancelRedemption, approveRedemption, rejectRedemption } from '../store/rewards.js';
 import { labelMD, labelTime } from '../utils/date.js';
 import { goalHtml } from './goal.js';
+import { needOnline } from '../net.js';
 
 const STATUS = { pending: '申請中', approved: '已兌換', rejected: '媽媽退回', cancelled: '已取消' };
 
@@ -121,6 +122,7 @@ export function mountPoints(el, { kid }) {
           const rw = rewards.find((x) => x.id === id);
           const available = ledger.balance - reservedSum();
           if (available < rw.cost) return toast(`還差 ${rw.cost - available} 點喔，繼續加油！💪`);
+          needOnline('申請兌換');
           if (!(await confirmDialog(`用 ${rw.cost} 點兌換「${rw.title}」？\n送出後要等媽媽核可。`, { okLabel: '申請兌換' }))) return;
           await requestRedemption(kid, rw);
           toast('已送出申請，等媽媽核可 🎁', 'ok');
@@ -131,6 +133,7 @@ export function mountPoints(el, { kid }) {
           break;
         case 'approveReq': {
           const r = redemptions.find((x) => x.id === id);
+          needOnline('核可兌換');
           if (ledger.balance < r.cost) return toast(`點數不足（目前 ${ledger.balance} 點），無法扣點`, 'error');
           b.disabled = true;
           await approveRedemption(id);

@@ -9,6 +9,7 @@ import { mountChecklistPanel } from './checklist-panel.js';
 import { watchEvents, eventsOn } from '../store/events.js';
 import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
+import { mountPushCard, shouldPromptPush } from './push-card.js';
 
 export const TASK_STATUS = {
   pending: '<span class="tag tag-wait">待媽媽確認</span>',
@@ -29,6 +30,7 @@ export function mountHome(el, { kid }) {
       <div class="hero-sub" id="pendingPts"></div>
       <div id="momTodo"></div>
     </section>
+    <section class="card" id="pushPrompt" hidden></section>
     <section class="card" id="goal" hidden></section>
     <div class="grid-2">
       <section class="card">
@@ -103,6 +105,7 @@ export function mountHome(el, { kid }) {
     if (b) go(b.dataset.go);
   });
 
+  if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });
   const cleanPanel = mountChecklistPanel($('#today'), { kid, date: today });
   return () => { unsubs.forEach((u) => u()); cleanPanel(); };
 }

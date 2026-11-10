@@ -96,6 +96,10 @@ firebase deploy --only firestore --project 你的專案ID
 
 ---
 
+## 推播通知
+
+請看 [docs/PUSH.md](PUSH.md)：升級 Blaze 方案、產生推播金鑰、用 Cloud Shell 部署一次。部署之後，安全規則也會一起發布，不用再手動貼。
+
 ## 更新版本時
 
 - **`firestore.rules` 有改動時**（例如第二階段新增留言、兌換），要重新到 Firestore「規則」分頁貼上並發布，否則新功能會出現「沒有權限」。
@@ -127,7 +131,9 @@ npx firebase-tools emulators:start --project demo-kids
 
 然後打開 `http://127.0.0.1:5173/?emulator`。
 
-安全規則自動測試（28 項，涵蓋配對、任務、本週進度、清單、流水帳、課程、兌換、留言的權限）：
+安全規則自動測試（29 項，涵蓋配對、任務、本週進度、清單、流水帳、課程、兌換、留言、推播權杖的權限）：
+通知觸發測試（12 項）的執行方式寫在 `tests/functions.test.mjs` 開頭。
+
 
 ```bash
 cd tests && npm install && npm run test:rules
