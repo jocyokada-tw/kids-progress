@@ -110,16 +110,18 @@ export const md = (d) => (d ? `${+d.slice(5, 7)}/${+d.slice(8, 10)}` : '');
 // ---------- 每 30 分鐘：每日提醒、勿擾時段結束後補發 ----------
 /** 今天還沒完成的項目（不需要有人先打開清單，直接從固定事項與已確認進度計算） */
 export async function remainingToday(fid, kidId, now) {
-  const [routines, tasks, items, weekly] = await Promise.all([
+  const [routines, tasks, items, weekly, wordLists] = await Promise.all([
     db.collection(`families/${fid}/routines`).where('kidId', '==', kidId).get(),
     db.collection(`families/${fid}/tasks`).where('kidId', '==', kidId).where('date', '==', now.date).get(),
     db.collection(`families/${fid}/items`).where('kidId', '==', kidId).where('date', '==', now.date).get(),
-    db.collection(`families/${fid}/tasks`).where('kidId', '==', kidId).where('date', '==', '').get()
+    db.collection(`families/${fid}/tasks`).where('kidId', '==', kidId).where('date', '==', '').get(),
+    db.collection(`families/${fid}/wordLists`).where('kids', 'array-contains', kidId).get()
   ]);
   const doneIds = new Set(items.docs.filter((d) => d.data().done || d.data().review === 'approved').map((d) => d.data().sourceId));
   const expected = [
     ...routines.docs.filter((d) => d.data().active !== false && (d.data().weekdays || []).includes(now.weekday)).map((d) => ({ id: d.id, title: d.data().title })),
-    ...tasks.docs.filter((d) => d.data().status === 'approved').map((d) => ({ id: d.id, title: d.data().title }))
+    ...tasks.docs.filter((d) => d.data().status === 'approved').map((d) => ({ id: d.id, title: d.data().title })),
+    ...(wordLists.docs.some((d) => d.data().active !== false && d.data().count > 0) ? [{ id: 'words', title: '每日單字' }] : [])
   ];
   const left = expected.filter((e) => !doneIds.has(e.id));
   const unplanned = weekly.docs.filter((d) => {

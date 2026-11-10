@@ -1,7 +1,7 @@
 // Service Worker：快取 App 外殼（離線也能打開）、顯示推播通知。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v11';
+const VERSION = 'v12';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
@@ -14,7 +14,7 @@ const SHELL = [
   './js/views/shell.js', './js/views/pair.js', './js/views/roles.js', './js/views/home.js',
   './js/views/checklist-panel.js', './js/views/checklist.js', './js/views/schedule.js',
   './js/views/points.js', './js/views/settings.js', './js/views/messages.js', './js/views/goal.js',
-  './js/push.js', './js/net.js', './js/views/push-card.js', './js/views/calendar.js',
+  './js/push.js', './js/net.js', './js/views/push-card.js', './js/views/calendar.js', './js/views/words.js', './js/store/words.js', './js/utils/speak.js', './js/utils/srs.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png'
 ];
 

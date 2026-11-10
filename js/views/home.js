@@ -7,6 +7,7 @@ import { watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
 import { todayStr, labelMD } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
 import { mountEventCalendar } from './calendar.js';
+import { watchWordLists, watchSession } from '../store/words.js';
 import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
@@ -32,6 +33,7 @@ export function mountHome(el, { kid }) {
     </section>
     <section class="card" id="pushPrompt" hidden></section>
     <section class="card" id="goal" hidden></section>
+    <section class="card" id="wordsCard" hidden></section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><h2>今日清單 <span class="muted small">${labelMD(today)}</span></h2>
@@ -86,6 +88,21 @@ export function mountHome(el, { kid }) {
     const b = e.target.closest('[data-go]');
     if (b) go(b.dataset.go);
   });
+
+  // 每日單字入口
+  let hasWords = false, wordSession;
+  const drawWords = () => {
+    const c = $('#wordsCard');
+    c.hidden = !hasWords;
+    if (!hasWords) return;
+    const s = wordSession;
+    const status = !s ? (isMom() ? '今天還沒開始' : '今天的單字還沒學喔') : !s.finished ? '進行中' : s.perfect ? '今天完成了，一次全對 🎯' : `今天完成了（${(s.wrong || []).length} 個字要再加油）`;
+    c.innerHTML = `<div class="push-card"><span style="font-size:2rem">📖</span>
+      <div class="grow"><strong>每日單字</strong><br><span class="muted small">${status}</span></div>
+      <button class="btn ${s && s.finished ? 'btn-ghost' : 'btn-primary'}" data-go="/k/${kid}/words">${isMom() ? '查看' : s && s.finished ? '看單字' : s ? '繼續 ▶' : '開始 ▶'}</button></div>`;
+  };
+  unsubs.push(watchWordLists((l) => { hasWords = l.some((x) => (x.kids || []).includes(kid) && x.count > 0); drawWords(); }, (e) => showError(e, '讀取字庫')));
+  unsubs.push(watchSession(kid, today, (s) => { wordSession = s; drawWords(); }, (e) => showError(e, '讀取單字')));
 
   if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });
   const cleanPanel = mountChecklistPanel($('#today'), { kid, date: today });

@@ -3,6 +3,8 @@ import { esc, toast, showError, modal, popPoints } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonusIfComplete } from '../store/checklist.js';
 import { todayStr } from '../utils/date.js';
 import { needOnline } from '../net.js';
+import { go } from '../router.js';
+import { getSession, WORD_DEFAULTS } from '../store/words.js';
 
 const STATUS = {
   pending: '<span class="tag tag-wait">⏳ 待核可</span>',
@@ -48,6 +50,20 @@ export function mountChecklistPanel(el, { kid, date }) {
       ${mom && pendingCount > 1 ? `<button class="btn btn-primary btn-block" data-act="approveAll">✓ 全部核可（${pendingCount} 項）</button>` : ''}`;
   }
 
+  // 每日單字的測驗結果（給媽媽核可時參考）
+  const wordResult = {};
+  function wordsTag(it) {
+    const s = wordResult[it.id];
+    if (!it.done && it.review !== 'approved') return `<span class="tag">單字</span>${mom ? '' : '<span class="tag tag-wait">點一下開始 ▶</span>'}`;
+    if (s === undefined) {
+      wordResult[it.id] = null;
+      getSession(kid, it.date).then((r) => { wordResult[it.id] = r || false; draw(); }).catch(() => {});
+    }
+    if (!s) return '<span class="tag">單字</span>';
+    const bonus = ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).perfectBonus;
+    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}`;
+  }
+
   function row(it) {
     const checked = it.done || it.review === 'approved';
     return `
@@ -56,7 +72,7 @@ export function mountChecklistPanel(el, { kid, date }) {
         <div class="item-main">
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
-            ${it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
+            ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${STATUS[it.review] || ''}
           </div>
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
@@ -84,6 +100,7 @@ export function mountChecklistPanel(el, { kid, date }) {
         case 'toggle': {
           if (it.review === 'approved') return toast('已經入帳囉，不能取消 ✓');
           // 小孩送出後就鎖定，只有媽媽可以退回
+          if (!mom && it.sourceType === 'words' && it.review !== 'pending') return go(`/k/${kid}/words`);
           if (!mom && it.review === 'pending') return toast('已經送出等媽媽核可囉 🔒 要取消的話請媽媽退回');
           const done = !it.done;
           b.disabled = true;

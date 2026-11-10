@@ -436,3 +436,36 @@
 .cal-list { list-style: none; padding: 0; margin: 0; display: grid; gap: 6px; }
 .cal-list li { display: flex; gap: 10px; align-items: flex-start; padding: 8px 10px; border-radius: 12px; background: color-mix(in srgb, var(--s) 14%, white); border-left: 5px solid var(--s); }
 .cal-time { font-weight: 800; font-size: .85rem; white-space: nowrap; min-width: 92px; color: color-mix(in srgb, var(--s) 50%, black); }
+
+/* ===== 每日單字 ===== */
+.btn-lg { min-height: 56px; padding: 0 28px; font-size: 1.15rem; }
+.btn-row.center { justify-content: center; }
+.word-plan { display: flex; justify-content: center; gap: 24px; margin: 10px 0 14px; font-size: 1.05rem; }
+.word-plan strong { font-size: 2rem; color: var(--kid); }
+.word-card { text-align: center; display: flex; flex-direction: column; align-items: center; gap: 10px; padding: 22px 16px; }
+.speak-big { width: 72px; height: 72px; border-radius: 50%; border: 0; font-size: 2rem; background: color-mix(in srgb, var(--kid) 16%, white); }
+.speak-big:active { transform: scale(.93); }
+.word-big { font-size: 2.4rem; font-weight: 900; line-height: 1.2; word-break: break-word; }
+.word-zh { font-size: 1.5rem; font-weight: 700; color: var(--muted); }
+.word-ex { border: 0; background: #f4eee6; border-radius: 14px; padding: 10px 14px; font-size: 1.05rem; min-height: 44px; text-align: left; }
+.q-title { font-weight: 800; color: var(--muted); margin: 0; }
+.mc { display: grid; gap: 10px; width: 100%; max-width: 420px; }
+.mc-opt { min-height: 56px; border: 2px solid var(--line); border-radius: 16px; background: #fff; font-size: 1.15rem; font-weight: 700; padding: 8px 12px; }
+.mc-opt.right { border-color: var(--ok); background: var(--ok-soft); }
+.mc-opt.wrong { border-color: var(--bad); background: var(--bad-soft); }
+.spell-input { width: 100%; max-width: 420px; min-height: 60px; font-size: 1.6rem; text-align: center; border: 3px solid var(--line); border-radius: 16px; padding: 8px 12px; margin-bottom: 12px; letter-spacing: .04em; }
+.spell-input:focus { border-color: var(--kid); outline: none; }
+#spell { width: 100%; display: flex; flex-direction: column; align-items: center; }
+.spell-answer { font-size: 1.8rem; border-radius: 16px; padding: 10px 18px; }
+.spell-answer.right { background: var(--ok-soft); color: #13804a; }
+.spell-answer.wrong { background: var(--bad-soft); color: #9b2638; }
+.fb { font-weight: 800; font-size: 1.1rem; margin: 0; }
+.fb.ok { color: var(--ok); } .fb.bad { color: var(--bad); }
+.word-list { list-style: none; padding: 0; margin: 0; }
+.word-list li { display: flex; align-items: center; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); text-align: left; }
+.word-list li:last-child { border-bottom: 0; }
+.icon-btn.speak { background: #f4eee6; border-radius: 50%; flex: none; }
+.stat-row { display: flex; gap: 10px; margin-bottom: 12px; }
+.stat { flex: 1; background: #faf6f0; border-radius: 14px; padding: 10px 6px; text-align: center; display: flex; flex-direction: column; }
+.stat-num { font-size: 1.8rem; font-weight: 900; color: var(--kid); }
+.list-prog { margin-bottom: 12px; }

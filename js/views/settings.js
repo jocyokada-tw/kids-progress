@@ -9,6 +9,8 @@ import { watchPairRequests, approvePair, rejectPair, watchDevices, removeDevice 
 import { WEEKDAYS } from '../utils/date.js';
 import { isValidPin } from '../utils/crypto.js';
 import { needOnline } from '../net.js';
+import { WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordList, loadListWords, saveListWords, parseWords, wordsToText } from '../store/words.js';
+import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const wdLabel = (wds) => {
@@ -31,6 +33,9 @@ export function mountSettings(el) {
     <section class="card"><h2>📋 每日固定事項</h2>
       <p class="muted small">這些事項會依星期自動出現在每日清單，例如「刷牙」「閱讀 20 分鐘」。</p>
       <div id="sRoutines"></div></section>
+    <section class="card"><h2>📖 每日單字</h2>
+      <p class="muted small">每天學幾個新單字，並依遺忘曲線自動安排複習（答對後隔 1、2、4、7、15、30、60 天再考）。補習班單字會優先學，考前一天和當天整份複習。</p>
+      <div id="sWordLists"></div><hr><div id="sWordCfg"></div></section>
     <section class="card"><h2>🎁 兌換項目</h2>
       <p class="muted small">孩子申請兌換時會先預留點數，媽媽核可後才正式扣點。</p>
       <div id="sRewards"></div></section>
@@ -247,6 +252,68 @@ export function mountSettings(el) {
       <button class="icon-btn" type="button" data-act="removeSubject" aria-label="刪除">🗑️</button>
     </div>`;
 
+  // ---------- 每日單字 ----------
+  let wordLists = null;
+  const wordCfg = () => ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) });
+  function drawWordCfg() {
+    const c = wordCfg();
+    $('#sWordCfg').innerHTML = `
+      <form id="wordCfgForm">
+        <div class="field-row">
+          <label class="field"><span>每天新單字</span><input name="perDay" type="number" inputmode="numeric" min="1" max="20" value="${c.perDay}"></label>
+          <label class="field"><span>完成點數</span><input name="points" type="number" inputmode="numeric" min="0" max="99" value="${c.points}"></label>
+          <label class="field"><span>一次全對加點</span><input name="perfectBonus" type="number" inputmode="numeric" min="0" max="99" value="${c.perfectBonus}"></label>
+        </div>
+        <button class="btn btn-primary" type="submit">儲存單字設定</button>
+      </form>`;
+  }
+  function drawWordLists() {
+    $('#sWordLists').innerHTML = `
+      ${wordLists === null ? '<p class="empty">載入中…</p>' : wordLists.length ? `<ul class="rows">${wordLists.map((l) => `
+        <li><button class="row-btn" data-act="editWordList" data-id="${l.id}">
+          <span class="grow"><strong>${esc(l.name)}</strong> <span class="tag">${l.kind === 'cram' ? '補習班' : '字庫'}</span><br>
+            <span class="muted small">${(l.kids || []).map(memberName).join('、') || '尚未指定孩子'}${l.kind === 'cram' && l.testDate ? `・${labelMD(l.testDate)} 考試` : ''}</span></span>
+          <span class="pts">${l.count || 0} 字</span></button></li>`).join('')}</ul>` : '<p class="empty">還沒有字庫</p>'}
+      <div class="btn-row" style="justify-content:flex-start">
+        <button class="btn btn-primary" data-act="newWordList" data-kind="cram">＋ 補習班單字</button>
+        <button class="btn btn-ghost" data-act="newWordList" data-kind="general">＋ 字庫（Flyers 等）</button>
+      </div>`;
+  }
+  async function editWordList(l, kind) {
+    const k = l ? l.kind : kind;
+    const today = todayStr();
+    // 補習班預設考試日：至少三天後的第一個週三（週五拿到 → 下週三考）
+    let nextWed = addDays(today, 3);
+    while (weekday(nextWed) !== 3) nextWed = addDays(nextWed, 1);
+    const text = l && l.count ? wordsToText(await loadListWords(l.id)) : '';
+    const res = await modal({
+      title: l ? '修改字庫' : k === 'cram' ? '新增補習班單字' : '新增字庫',
+      multi: ['kids'],
+      html: `
+        <label class="field"><span>名稱</span><input name="name" maxlength="30" value="${esc(l?.name || (k === 'cram' ? `補習班 ${labelMD(today)}` : ''))}" placeholder="例如：Flyers"></label>
+        <div class="field"><span>給誰學？</span>${chipChecks('kids', KIDS.map((id) => ({ value: id, label: memberName(id) })), l?.kids || [])}</div>
+        ${k === 'cram' ? `<label class="field"><span>考試日（考前一天和當天會整份複習）</span><input name="testDate" type="date" value="${esc(l ? l.testDate || '' : nextWed)}"></label>` : ''}
+        <label class="field"><span>單字（每行一個：英文, 中文, 例句）</span>
+          <textarea name="words" rows="9" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="apple, 蘋果, I eat an apple every day.&#10;banana, 香蕉&#10;library 圖書館">${esc(text)}</textarea>
+          <span class="field-hint">可以直接從 Excel 或筆記貼上。用逗號、Tab 或空白分開都可以；例句可以不寫。整份內容會以這裡為準。</span></label>`,
+      buttons: [...(l ? [{ id: 'delete', label: '刪除', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
+      validate: (id, d) => (id !== 'ok' ? null : !d.name ? '請輸入名稱' : !d.kids.length ? '請選擇給誰學' : null)
+    });
+    try {
+      if (res.id === 'delete') {
+        if (await confirmDialog(`刪除字庫「${l.name}」？已學過的進度會保留。`, { danger: true, okLabel: '刪除' })) await archiveWordList(l.id);
+        return;
+      }
+      if (res.id !== 'ok') return;
+      needOnline('儲存字庫');
+      const { words, skipped } = parseWords(res.data.words);
+      if (!state.settings.words) await saveSettings({ words: WORD_DEFAULTS });
+      const id = await saveWordList(l?.id, { name: res.data.name, kind: k, kids: res.data.kids, testDate: res.data.testDate });
+      await saveListWords(id, words);
+      toast(`已儲存 ${words.length} 個單字${skipped.length ? `（${skipped.length} 行看不懂，已略過）` : ''}`, skipped.length ? 'info' : 'ok', 4000);
+    } catch (e) { showError(e, '儲存字庫'); }
+  }
+
   // ---------- 通知 ----------
   const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
   const timeSelect = (name, val) => `<select class="select" name="${name}">${HALF_HOURS.map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
@@ -297,6 +364,10 @@ export function mountSettings(el) {
         if (!(bonus >= 0 && def >= 0)) throw new Error('請輸入 0 以上的數字');
         await saveSettings({ bonusAllDone: bonus, defaultTaskPoints: def });
         toast('規則已儲存', 'ok');
+      } else if (f.id === 'wordCfgForm') {
+        const n = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
+        await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99) } });
+        toast('單字設定已儲存', 'ok');
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
         const n = notifySettings();
@@ -327,6 +398,8 @@ export function mountSettings(el) {
     try {
       switch (b.dataset.act) {
         case 'rkid': routineKid = b.dataset.kid; subRoutines(); break;
+        case 'newWordList': editWordList(null, b.dataset.kind); break;
+        case 'editWordList': editWordList(wordLists.find((x) => x.id === b.dataset.id)); break;
         case 'newReward': editReward(null); break;
         case 'editReward': editReward(rewards.find((r) => r.id === b.dataset.id)); break;
         case 'editGoal': editGoal(b.dataset.kid); break;
@@ -365,10 +438,11 @@ export function mountSettings(el) {
     } catch (err) { showError(err); }
   });
 
-  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify();
+  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify(); drawWordCfg(); drawWordLists();
   mountPushCard($('#sPushDevice'));
   const unsubs = [
     watchRewards((l) => { rewards = l; drawRewards(); }, (e) => showError(e, '讀取兌換項目')),
+    watchWordLists((l) => { wordLists = l; drawWordLists(); }, (e) => showError(e, '讀取字庫')),
     watchPairRequests((l) => { requests = l; drawRequests(); }, (e) => showError(e, '讀取配對申請')),
     watchDevices((l) => { devices = l; drawDevices(); }, (e) => showError(e, '讀取裝置'))
   ];

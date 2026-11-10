@@ -23,6 +23,10 @@
 | `pushTokens/{uid}` | 裝置的推播權杖（只有伺服器會讀） | `token`, `ua`, `updatedAt` |
 | `pushQueue/{id}` | 勿擾時段暫存的通知（伺服器專用） | `who`, `title`, `body`, `url`, `tag`, `createdAt` |
 | `meta/pushState` | 每日提醒是否已發（伺服器專用） | `lastDaily` |
+| `wordLists/{id}` | 單字字庫 | `name`, `kind: cram\|general`（補習班／一般字庫）, `kids[]`, `testDate`（補習班考試日）, `count`, `active` |
+| `wordLists/{id}/chunks/{n}` | 字庫內容（每 200 字一份） | `words: [{w, zh, ex}]` |
+| `wordProgress/{kidId}` | 單字學習進度 | `w: { 單字: { b: 熟練度 0–6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日 } }` |
+| `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect` |
 | `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
 | `threads/{kidId}/messages/{id}` | 留言 | `from: mom\|kid`, `text`（最多 500 字）, `createdAt` |
 
@@ -59,6 +63,15 @@
 
 **目標**：媽媽在設定中為每個小孩設定目標（名稱、圖示、點數），小孩首頁與點數頁顯示「目前點數／目標點數，還差 N 點」。
 
+**每日單字**：
+- 每天學 `settings.words.perDay` 個新字（預設 5）。補習班單字（考試日未過）優先，不足的用一般字庫依順序補滿。
+- 複習依遺忘曲線：答對後熟練度 +1，隔 1、2、4、7、15、30、60 天再考；答錯回到熟練度 0、隔天再考。每天最多複習 20 個到期的字。
+- 補習班考前一天與當天，學過的字整份複習。
+- 流程：新字卡（發音、中文、例句）→ 選意思 → 全部拼字。答錯的題目會排到最後再考一次，直到答對。
+- 第一次答錯就寫進 `wordSessions.wrong`，中途離開重來也不會消失；完成時 `wrong` 是空的才算 `perfect`。
+- 完成後自動把清單項目 `items/{kidId}_{日期}_words` 標成待核可（點數 `settings.words.points`）；媽媽核可時若 `perfect`，同一個交易多寫一筆 `ledger/wordbonus_…`（`settings.words.perfectBonus`）。
+- 發音使用裝置內建的語音朗讀，不需要網路。
+
 **留言已讀**：打開對話時更新自己的 `momReadAt`／`kidReadAt`；我傳的訊息若 `createdAt` 早於對方的讀取時間，就顯示「已讀」。
 
 ## 安全規則重點（`firestore.rules`）
@@ -74,7 +87,7 @@
 | 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；本週進度只能把還沒排的排到同一週的某一天，排定後不能自己改；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能勾選送出（`review` 改成 `pending`），送出後不能自己取消、不能自己核可，只有媽媽能退回；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 29 項自動測試驗證上述規則；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
+`tests/rules.test.mjs` 有 33 項自動測試驗證上述規則；`tests/srs.test.mjs` 有 7 項測試驗證單字解析與遺忘曲線排程；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
 
 **推播**：每台裝置開啟通知後，把權杖寫到 `pushTokens/{自己的uid}`（只能寫自己的、任何用戶端都讀不到）。
 伺服器依 `devices` 判斷對象：媽媽的通知送到 `isMom` 的裝置；小孩的通知送到配對給該小孩、且不是媽媽的裝置。

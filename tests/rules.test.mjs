@@ -297,3 +297,44 @@ test('推播權杖：已配對裝置只能寫自己的，任何人都讀不到',
   await assertSucceeds(deleteDoc(doc(db('a'), F, 'pushTokens/a')));
   await assertFails(getDocs(collection(db('mom'), F, 'pushQueue')));
 });
+
+// ---------- 每日單字 ----------
+test('字庫：小孩可讀不可寫', async () => {
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'wordLists/l1'), { name: 'Flyers', kind: 'general', kids: ['kidA'], count: 1, active: true }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'wordLists/l1/chunks/0'), { words: [{ w: 'apple', zh: '蘋果', ex: '' }] }));
+  await assertSucceeds(getDocs(collection(db('a'), F, 'wordLists')));
+  await assertSucceeds(getDocs(collection(db('a'), F, 'wordLists/l1/chunks')));
+  await assertFails(setDoc(doc(db('a'), F, 'wordLists/l1/chunks/0'), { words: [] }));
+  await assertFails(updateDoc(doc(db('a'), F, 'wordLists/l1'), { count: 0 }));
+  await assertFails(getDocs(collection(db('stranger'), F, 'wordLists')));
+});
+test('單字進度：小孩只能讀寫自己的', async () => {
+  await assertSucceeds(setDoc(doc(db('a'), F, 'wordProgress/kidA'), { w: { apple: { b: 0, d: '2026-11-09' } } }, { merge: true }));
+  await assertSucceeds(getDoc(doc(db('a'), F, 'wordProgress/kidA')));
+  await assertFails(setDoc(doc(db('a'), F, 'wordProgress/kidB'), { w: {} }, { merge: true }));
+  await assertFails(getDoc(doc(db('a'), F, 'wordProgress/kidB')));
+});
+test('單字練習：答錯紀錄不能刪、有答錯就不能標成全對、完成後不能再改', async () => {
+  const d = db('a');
+  const ref = doc(d, F, 'wordSessions/kidA_2026-11-08');
+  const base = { kidId: 'kidA', date: '2026-11-08', newWords: ['apple'], reviewWords: [], wrong: [], finished: false, perfect: false };
+  await assertFails(setDoc(doc(d, F, 'wordSessions/kidA_2026-11-09'), { ...base, date: '2026-11-09', finished: true, perfect: true }));
+  await assertFails(setDoc(doc(d, F, 'wordSessions/kidB_2026-11-08'), { ...base, kidId: 'kidB' }));
+  await assertSucceeds(setDoc(ref, base));
+  await assertSucceeds(updateDoc(ref, { wrong: ['apple'] }));
+  await assertFails(updateDoc(ref, { wrong: [] }));
+  await assertFails(updateDoc(ref, { finished: true, perfect: true }));
+  await assertFails(updateDoc(ref, { newWords: [] }));
+  await assertSucceeds(updateDoc(ref, { finished: true, perfect: false }));
+  await assertFails(updateDoc(ref, { perfect: true, wrong: [] }));
+  await assertFails(deleteDoc(ref));
+  await assertSucceeds(getDocs(query(collection(d, F, 'wordSessions'), where('kidId', '==', 'kidA'))));
+  await assertFails(getDocs(query(collection(d, F, 'wordSessions'), where('kidId', '==', 'kidB'))));
+});
+test('每日單字的清單項目：點數必須等於設定', async () => {
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), F, 'meta/settings'), { words: { perDay: 5, points: 2, perfectBonus: 2 } }));
+  const d = db('a');
+  const it = kidItem({ sourceType: 'words', sourceId: 'words', title: '📖 每日單字', points: 2, order: 500 });
+  await assertFails(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), { ...it, points: 50 }));
+  await assertSucceeds(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), it));
+});
