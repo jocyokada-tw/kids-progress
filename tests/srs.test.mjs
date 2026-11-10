@@ -1,7 +1,7 @@
 // 每日單字邏輯測試：cd tests && node --test srs.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWords, wordsToText, planToday, nextProgress, INTERVALS } from '../js/utils/srs.js';
+import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, INTERVALS } from '../js/utils/srs.js';
 
 const W = (...ws) => ws.map((w) => ({ w, zh: w + '中', ex: '' }));
 
@@ -11,10 +11,13 @@ banana\t香蕉
 library 圖書館
 ice cream　冰淇淋
 don’t，不要
-Apple, 重複
+apple, 重複
+May, 五月
+may, 可以
+as ... as, 和…一樣
 蘋果
 `);
-  assert.deepEqual(words.map((x) => x.w), ['apple', 'banana', 'library', 'ice cream', "don't"]);
+  assert.deepEqual(words.map((x) => x.w), ['apple', 'banana', 'library', 'ice cream', "don't", 'May', 'may', 'as ... as']);
   assert.equal(words[0].ex, 'I eat an apple, every day.');
   assert.equal(words[2].zh, '圖書館');
   assert.equal(words[3].zh, '冰淇淋');
@@ -76,4 +79,16 @@ test('一路答對的複習日期：隔 1、2、4、7、15、30、60 天', () =>
     p = { w: nextProgress({ newWords: [], reviewWords: ['w'] }, p, new Set(['w']), day).w };
   }
   assert.deepEqual(gaps, [1, 2, 4, 7, 15, 30]);
+});
+
+test('拼字比對：不分大小寫、忽略「...」與多餘空白、彎引號', () => {
+  assert.ok(sameSpelling(' MAY ', 'May'));
+  assert.ok(sameSpelling('as as', 'as ... as'));
+  assert.ok(sameSpelling('as...as', 'as ... as'));
+  assert.ok(sameSpelling('ice  cream', 'ice cream'));
+  assert.ok(sameSpelling('don’t', "don't"));
+  assert.ok(sameSpelling('a.m.', 'a.m.'));
+  assert.ok(!sameSpelling('am', 'a.m.'));
+  assert.ok(!sameSpelling('xray', 'x-ray'));
+  assert.ok(!sameSpelling('aple', 'apple'));
 });
