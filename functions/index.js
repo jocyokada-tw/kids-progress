@@ -30,6 +30,13 @@ export const onTaskUpdated = onDocumentUpdated('families/{fid}/tasks/{id}', asyn
   const { fid, id } = event.params;
   const b = event.data.before.data();
   const a = event.data.after.data();
+  if (a.kind === 'weekly' && b.date && !a.date && a.status === 'approved') {
+    await notify(fid, a.kidId, 'weekly', {
+      title: '📦 媽媽退回了本週進度的日期', body: `「${clip(a.title, 30)}」請重新排要做的日期${a.momNote ? `\n💬 ${clip(a.momNote)}` : ''}`,
+      url: `#/k/${a.kidId}/schedule`, tag: `task-${id}`
+    });
+    return;
+  }
   if (b.status === a.status) return;
   const note = a.momNote ? `\n💬 ${clip(a.momNote)}` : '';
   if (b.status === 'pending' && a.status === 'approved') {
@@ -76,7 +83,9 @@ export const onItemUpdated = onDocumentUpdated('families/{fid}/items/{id}', asyn
 export const onLedgerCreated = onDocumentCreated('families/{fid}/ledger/{id}', async (event) => {
   const { fid } = event.params;
   const e = event.data.data();
-  if (e.type === 'bonus') {
+  if (e.type === 'bonus' && event.params.id.startsWith('wordbonus_')) {
+    await notify(fid, e.kidId, 'itemReview', { title: `🎯 單字一次全對！+${e.amount} 點`, body: '今天的單字測驗全部答對，太厲害了！', url: `#/k/${e.kidId}/points`, tag: `wordbonus-${e.kidId}` });
+  } else if (e.type === 'bonus') {
     await notify(fid, e.kidId, 'itemReview', { title: `🎉 全部完成！額外獎勵 +${e.amount}`, body: '今天的清單全部完成，太棒了！', url: `#/k/${e.kidId}/points`, tag: `bonus-${e.kidId}` });
   } else if (e.type === 'adjust') {
     await notify(fid, e.kidId, 'itemReview', {

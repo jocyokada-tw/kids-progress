@@ -1,8 +1,10 @@
 import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints } from '../ui.js';
-import { watchChecklist, setItemDone, approveItem, returnItem, grantBonusIfComplete } from '../store/checklist.js';
+import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus } from '../store/checklist.js';
 import { todayStr } from '../utils/date.js';
 import { needOnline } from '../net.js';
+import { go } from '../router.js';
+import { getSession, WORD_DEFAULTS } from '../store/words.js';
 
 const STATUS = {
   pending: '<span class="tag tag-wait">⏳ 待核可</span>',
@@ -13,12 +15,14 @@ const STATUS = {
 /** 某個小孩某一天的檢查清單（儀表板與清單頁共用） */
 export function mountChecklistPanel(el, { kid, date }) {
   let items = null;
+  let complete = false;
+  let bonusTried = false;
   const mom = isMom();
   const future = date > todayStr();
 
   const unsub = future ? null : watchChecklist(kid, date, {
     canReconcile: !!state.device.isMom,
-    onItems: (list) => { items = list; draw(); },
+    onItems: (list, isComplete) => { items = list; complete = isComplete; draw(); maybeBonus(); },
     onError: (e) => showError(e, '讀取清單')
   });
 
@@ -31,7 +35,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     }
     const total = items.length;
     const doneN = items.filter((i) => i.done || i.review === 'approved').length;
-    const approvedAll = items.every((i) => i.review === 'approved');
+    const approvedAll = complete;
     const earned = items.filter((i) => i.review === 'approved').reduce((s, i) => s + (i.points || 0), 0);
     const waiting = items.filter((i) => i.review === 'pending').reduce((s, i) => s + (i.points || 0), 0);
     const bonus = Number(state.settings.bonusAllDone) || 0;
@@ -48,6 +52,20 @@ export function mountChecklistPanel(el, { kid, date }) {
       ${mom && pendingCount > 1 ? `<button class="btn btn-primary btn-block" data-act="approveAll">✓ 全部核可（${pendingCount} 項）</button>` : ''}`;
   }
 
+  // 每日單字的測驗結果（給媽媽核可時參考）
+  const wordResult = {};
+  function wordsTag(it) {
+    const s = wordResult[it.id];
+    if (!it.done && it.review !== 'approved') return `<span class="tag">單字</span>${mom ? '' : '<span class="tag tag-wait">點一下開始 ▶</span>'}`;
+    if (s === undefined) {
+      wordResult[it.id] = null;
+      getSession(kid, it.date).then((r) => { wordResult[it.id] = r || false; draw(); }).catch(() => {});
+    }
+    if (!s) return '<span class="tag">單字</span>';
+    const bonus = ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).perfectBonus;
+    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}`;
+  }
+
   function row(it) {
     const checked = it.done || it.review === 'approved';
     return `
@@ -56,7 +74,7 @@ export function mountChecklistPanel(el, { kid, date }) {
         <div class="item-main">
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
-            ${it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
+            ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${STATUS[it.review] || ''}
           </div>
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
@@ -70,10 +88,17 @@ export function mountChecklistPanel(el, { kid, date }) {
       </li>`;
   }
 
-  async function afterApprove() {
+  // 媽媽裝置看到「全部完成」時發放額外獎勵。
+  // 不只在按下核可的當下檢查：之前漏發的日子，媽媽打開那天的清單也會補發（每天最多一次）。
+  async function maybeBonus() {
     const bonus = Number(state.settings.bonusAllDone) || 0;
-    if (await grantBonusIfComplete(kid, date, bonus)) toast(`🎉 全部完成！額外獎勵 +${bonus}`, 'ok');
+    if (!mom || !complete || bonusTried || !(bonus > 0) || !navigator.onLine) return;
+    bonusTried = true;
+    try {
+      if (await grantBonus(kid, date, bonus)) toast(`🎉 全部完成！額外獎勵 +${bonus}`, 'ok');
+    } catch (e) { bonusTried = false; showError(e, '發放獎勵'); }
   }
+  const afterApprove = () => maybeBonus();
 
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-act]');
@@ -83,6 +108,9 @@ export function mountChecklistPanel(el, { kid, date }) {
       switch (b.dataset.act) {
         case 'toggle': {
           if (it.review === 'approved') return toast('已經入帳囉，不能取消 ✓');
+          // 小孩送出後就鎖定，只有媽媽可以退回
+          if (!mom && it.sourceType === 'words' && it.review !== 'pending') return go(`/k/${kid}/words`);
+          if (!mom && it.review === 'pending') return toast('已經送出等媽媽核可囉 🔒 要取消的話請媽媽退回');
           const done = !it.done;
           b.disabled = true;
           await setItemDone(it.id, done);

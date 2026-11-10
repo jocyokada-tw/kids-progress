@@ -1,21 +1,28 @@
-import { db, query, where, onSnapshot, getDoc, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, getDoc, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs } from './paths.js';
 import { watchRoutines } from './routines.js';
 import { watchTasksOnDate } from './tasks.js';
 import { todayStr, weekday } from '../utils/date.js';
+import { state } from '../state.js';
+import { watchWordLists, WORD_DEFAULTS } from './words.js';
 
 // 每日清單項目：items/{kidId}_{date}_{sourceId}
 // 由「當天已確認的進度」＋「符合星期的固定事項」自動產生。文件 ID 固定，所以不會重複產生。
 // review: none（未完成）| pending（已勾選，待媽媽核可）| approved（已入帳）| returned（媽媽退回）
 export const itemId = (kidId, date, sourceId) => `${kidId}_${date}_${sourceId}`;
 
-function expectedFor(kidId, date, routines, tasks) {
+const WORDS_TITLE = '📖 每日單字';
+const wordPoints = () => ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).points;
+
+function expectedFor(kidId, date, routines, tasks, hasWords) {
   const wd = weekday(date);
   const list = [
     ...routines.filter((r) => r.active !== false && (r.weekdays || []).includes(wd))
       .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '' })),
     ...tasks.filter((t) => t.status === 'approved')
-      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '' }))
+      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '' })),
+    // 每日單字：有字庫的小孩，當天自動多一項（只在當天產生）
+    ...(hasWords && date === todayStr() ? [{ sourceType: 'words', sourceId: 'words', title: WORDS_TITLE, points: wordPoints(), order: 500, subject: '' }] : [])
   ];
   return new Map(list.map((e) => [itemId(kidId, date, e.sourceId), e]));
 }
@@ -37,17 +44,22 @@ async function createItem(id, kidId, date, e) {
  * canReconcile=true（媽媽裝置）時，也會更新已改名／改點數的項目、移除來源已不存在的項目。
  */
 export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) {
-  let routines = null, tasks = null, items = null;
+  let routines = null, tasks = null, items = null, wordLists = null;
   const tried = new Set();
   const isPastOrToday = date <= todayStr();
 
   const update = () => {
-    if (!routines || !tasks || !items) return;
-    const expected = expectedFor(kidId, date, routines, tasks);
+    if (!routines || !tasks || !items || !wordLists) return;
+    const hasWords = wordLists.some((l) => (l.kids || []).includes(kidId) && l.count > 0);
+    const expected = expectedFor(kidId, date, routines, tasks, hasWords);
     const visible = items
-      .filter((it) => it.review === 'approved' || expected.has(it.id))
+      .filter((it) => it.review === 'approved' || expected.has(it.id) || (it.sourceType === 'words' && it.done))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title));
-    onItems(visible);
+    // 「全部完成」的判斷以畫面上看到的清單為準：每個應該有的項目都已建立而且已核可
+    const have0 = new Map(items.map((it) => [it.id, it]));
+    const complete = visible.length > 0 && visible.every((it) => it.review === 'approved')
+      && [...expected.keys()].every((id) => have0.get(id)?.review === 'approved');
+    onItems(visible, complete);
     if (!isPastOrToday) return;
 
     const have = new Map(items.map((it) => [it.id, it]));
@@ -60,6 +72,7 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
     for (const it of items) {
       if (it.review === 'approved') continue;
       const e = expected.get(it.id);
+      if (!e && it.sourceType === 'words' && it.done) continue; // 過去日期已完成的單字項目保留給媽媽核可
       if (!e) {
         if (!tried.has('d' + it.id)) { tried.add('d' + it.id); deleteDoc(fdoc('items', it.id)).catch(onError); }
       } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
@@ -72,10 +85,19 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
   const unsubs = [
     watchRoutines(kidId, (r) => { routines = r; update(); }, onError),
     watchTasksOnDate(kidId, date, (t) => { tasks = t; update(); }, onError),
+    watchWordLists((l) => { wordLists = l; update(); }, onError),
     onSnapshot(query(fcol('items'), where('kidId', '==', kidId), where('date', '==', date)),
       (s) => { items = docs(s); update(); }, onError)
   ];
   return () => unsubs.forEach((u) => u());
+}
+
+/** 每日單字練習完成：確保清單項目存在，並標成「待核可」 */
+export async function markWordsDone(kidId, date, points) {
+  const id = itemId(kidId, date, 'words');
+  await createItem(id, kidId, date, { sourceType: 'words', sourceId: 'words', title: WORDS_TITLE, points, order: 500, subject: '' });
+  const s = await getDoc(fdoc('items', id));
+  if (s.exists() && ['none', 'returned'].includes(s.data().review)) await setItemDone(id, true);
 }
 
 /** 讀一次某個清單項目（不存在回傳 null） */
@@ -106,6 +128,8 @@ export const returnItem = (id, note) => updateDoc(fdoc('items', id), {
 export async function approveItem(id) {
   const ref = fdoc('items', id);
   const lref = fdoc('ledger', `task_${id}`);
+  const bref = fdoc('ledger', `wordbonus_${id}`);
+  const perfectBonus = ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).perfectBonus;
   await runTransaction(db, async (tx) => {
     const s = await tx.get(ref);
     if (!s.exists()) throw new Error('項目不存在');
@@ -115,8 +139,17 @@ export async function approveItem(id) {
     // 進度入帳後鎖定日期（本週進度不能再改天）
     const tref = it.sourceType === 'task' ? fdoc('tasks', it.sourceId) : null;
     const t = tref ? await tx.get(tref) : null;
+    // 每日單字：測驗一次全對，另外加一筆獎勵
+    let wordBonus = false;
+    if (it.sourceType === 'words' && perfectBonus > 0) {
+      const sess = await tx.get(fdoc('wordSessions', `${it.kidId}_${it.date}`));
+      wordBonus = sess.exists() && sess.data().finished && sess.data().perfect && !(await tx.get(bref)).exists();
+    }
     tx.update(ref, { done: true, review: 'approved', returnNote: '', approvedAt: serverTimestamp() });
     if (t && t.exists()) tx.update(tref, { itemApproved: true });
+    if (wordBonus) {
+      tx.set(bref, { kidId: it.kidId, amount: perfectBonus, type: 'bonus', title: '每日單字一次全對 🎯', date: it.date, refId: id, createdAt: serverTimestamp(), createdBy: 'mom' });
+    }
     if (!l.exists()) {
       tx.set(lref, {
         kidId: it.kidId, amount: it.points, type: 'task', title: it.title, date: it.date,
@@ -126,12 +159,9 @@ export async function approveItem(id) {
   });
 }
 
-/** 當天全部項目都核可後，發放「全部完成」額外獎勵（每天最多一次） */
-export async function grantBonusIfComplete(kidId, date, bonus) {
+/** 發放「全部完成」額外獎勵（流水帳 ID 固定，每天最多一次；是否全部完成由 watchChecklist 判斷） */
+export async function grantBonus(kidId, date, bonus) {
   if (!(bonus > 0)) return false;
-  const snap = await getDocs(query(fcol('items'), where('kidId', '==', kidId), where('date', '==', date)));
-  const list = docs(snap);
-  if (!list.length || !list.every((it) => it.review === 'approved')) return false;
   const lref = fdoc('ledger', `bonus_${kidId}_${date}`);
   return runTransaction(db, async (tx) => {
     const l = await tx.get(lref);

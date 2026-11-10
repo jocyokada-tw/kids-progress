@@ -148,8 +148,11 @@ test('小孩可以勾選，但不能自己核可', async () => {
   await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
   await assertFails(updateDoc(ref, { review: 'approved' }));
   await assertFails(updateDoc(ref, { points: 99 }));
-  await assertSucceeds(updateDoc(ref, { done: false, doneAt: null, review: 'none' }));
+  await assertFails(updateDoc(ref, { done: false, doneAt: null, review: 'none' })); // 送出後不能自己取消
   await assertFails(deleteDoc(ref));
+  // 媽媽退回後可以重新勾選
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: false, doneAt: null, review: 'returned', returnNote: 'x' }));
+  await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
 });
 test('已入帳的項目，小孩不能取消', async () => {
   await updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: true, review: 'approved' });
@@ -256,12 +259,14 @@ async function seedWeekly(over = {}) {
     points: 3, createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false, ...over
   }));
 }
-test('本週進度：小孩可以排到同一週的某一天、改天、放回待安排', async () => {
+test('本週進度：小孩可以排到同一週的某一天，排定後不能自己改；媽媽退回後可重排', async () => {
   await seedWeekly();
   const ref = doc(db('a'), F, 'tasks/w1');
   await assertSucceeds(updateDoc(ref, { date: '2026-11-11', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'tasks/w1'), { date: '' }));
   await assertSucceeds(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
-  await assertSucceeds(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
   await assertSucceeds(getDocs(query(collection(db('a'), F, 'tasks'), where('kidId', '==', 'kidA'), where('date', '==', ''))));
 });
 test('本週進度：不能排到別週、不能改點數或內容、入帳後不能改', async () => {
@@ -291,4 +296,45 @@ test('推播權杖：已配對裝置只能寫自己的，任何人都讀不到',
   await assertFails(getDoc(doc(db('mom'), F, 'pushTokens/a')));
   await assertSucceeds(deleteDoc(doc(db('a'), F, 'pushTokens/a')));
   await assertFails(getDocs(collection(db('mom'), F, 'pushQueue')));
+});
+
+// ---------- 每日單字 ----------
+test('字庫：小孩可讀不可寫', async () => {
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'wordLists/l1'), { name: 'Flyers', kind: 'general', kids: ['kidA'], count: 1, active: true }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'wordLists/l1/chunks/0'), { words: [{ w: 'apple', zh: '蘋果', ex: '' }] }));
+  await assertSucceeds(getDocs(collection(db('a'), F, 'wordLists')));
+  await assertSucceeds(getDocs(collection(db('a'), F, 'wordLists/l1/chunks')));
+  await assertFails(setDoc(doc(db('a'), F, 'wordLists/l1/chunks/0'), { words: [] }));
+  await assertFails(updateDoc(doc(db('a'), F, 'wordLists/l1'), { count: 0 }));
+  await assertFails(getDocs(collection(db('stranger'), F, 'wordLists')));
+});
+test('單字進度：小孩只能讀寫自己的', async () => {
+  await assertSucceeds(setDoc(doc(db('a'), F, 'wordProgress/kidA'), { w: { apple: { b: 0, d: '2026-11-09' } } }, { merge: true }));
+  await assertSucceeds(getDoc(doc(db('a'), F, 'wordProgress/kidA')));
+  await assertFails(setDoc(doc(db('a'), F, 'wordProgress/kidB'), { w: {} }, { merge: true }));
+  await assertFails(getDoc(doc(db('a'), F, 'wordProgress/kidB')));
+});
+test('單字練習：答錯紀錄不能刪、有答錯就不能標成全對、完成後不能再改', async () => {
+  const d = db('a');
+  const ref = doc(d, F, 'wordSessions/kidA_2026-11-08');
+  const base = { kidId: 'kidA', date: '2026-11-08', newWords: ['apple'], reviewWords: [], wrong: [], finished: false, perfect: false };
+  await assertFails(setDoc(doc(d, F, 'wordSessions/kidA_2026-11-09'), { ...base, date: '2026-11-09', finished: true, perfect: true }));
+  await assertFails(setDoc(doc(d, F, 'wordSessions/kidB_2026-11-08'), { ...base, kidId: 'kidB' }));
+  await assertSucceeds(setDoc(ref, base));
+  await assertSucceeds(updateDoc(ref, { wrong: ['apple'] }));
+  await assertFails(updateDoc(ref, { wrong: [] }));
+  await assertFails(updateDoc(ref, { finished: true, perfect: true }));
+  await assertFails(updateDoc(ref, { newWords: [] }));
+  await assertSucceeds(updateDoc(ref, { finished: true, perfect: false }));
+  await assertFails(updateDoc(ref, { perfect: true, wrong: [] }));
+  await assertFails(deleteDoc(ref));
+  await assertSucceeds(getDocs(query(collection(d, F, 'wordSessions'), where('kidId', '==', 'kidA'))));
+  await assertFails(getDocs(query(collection(d, F, 'wordSessions'), where('kidId', '==', 'kidB'))));
+});
+test('每日單字的清單項目：點數必須等於設定', async () => {
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), F, 'meta/settings'), { words: { perDay: 5, points: 2, perfectBonus: 2 } }));
+  const d = db('a');
+  const it = kidItem({ sourceType: 'words', sourceId: 'words', title: '📖 每日單字', points: 2, order: 500 });
+  await assertFails(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), { ...it, points: 50 }));
+  await assertSucceeds(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), it));
 });

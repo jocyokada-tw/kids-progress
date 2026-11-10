@@ -61,8 +61,14 @@ test('媽媽確認／退回進度 → 通知小孩（附建議）', async () => 
   await fn.onTaskUpdated.run(updated({ id: 't1' }, { ...base, status: 'pending' }, { ...base, status: 'approved' }));
   await fn.onTaskUpdated.run(updated({ id: 't2' }, { ...base, status: 'pending' }, { ...base, status: 'rejected' }));
   await fn.onTaskUpdated.run(updated({ id: 't3' }, { ...base, status: 'approved' }, { ...base, status: 'approved', date: '2026-11-11' }));
-  const l = await logs();
+  let l = await logs();
   assert.equal(l.length, 2);
+  // 媽媽把本週進度退回重排 → 通知小孩
+  await fn.onTaskUpdated.run(updated({ id: 'w' }, { ...base, kind: 'weekly', status: 'approved' }, { ...base, kind: 'weekly', status: 'approved', date: '' }));
+  l = await logs();
+  assert.equal(l.length, 3);
+  assert.ok(l.some((x) => x.title.includes('退回了本週進度')));
+  l = l.filter((x) => !x.title.includes('退回了本週進度'));
   assert.ok(l.every((x) => x.who === 'kidB' && x.body.includes('字再整齊一點')));
 });
 
