@@ -1,12 +1,12 @@
-import { isMom, member, subjectOf } from '../state.js';
+import { isMom, member } from '../state.js';
 import { esc, showError } from '../ui.js';
 import { go } from '../router.js';
 import { watchLedger } from '../store/ledger.js';
 import { watchPendingItems } from '../store/checklist.js';
-import { watchTasksRange, watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
-import { todayStr, addDays, range, labelMD, labelRelative } from '../utils/date.js';
+import { watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
+import { todayStr, labelMD } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
-import { watchEvents, eventsOn } from '../store/events.js';
+import { mountEventCalendar } from './calendar.js';
 import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
@@ -17,7 +17,7 @@ export const TASK_STATUS = {
   approved: ''
 };
 
-/** 儀表板：目前點數、今日清單、一個月內的行程 */
+/** 儀表板：目前點數、目標、今日清單、行程月曆（只有課程） */
 export function mountHome(el, { kid }) {
   const today = todayStr();
   const m = member(kid);
@@ -39,29 +39,13 @@ export function mountHome(el, { kid }) {
         <div id="today"></div>
       </section>
       <section class="card">
-        <div class="card-head"><h2>一個月內的行程</h2>
+        <div class="card-head"><h2>📆 行程月曆</h2>
           <button class="btn btn-sm btn-ghost" data-go="/k/${kid}/schedule">排程</button></div>
-        <div id="month"><p class="empty">載入中…</p></div>
+        <div id="calendar"></div>
       </section>
     </div>`;
 
   const $ = (s) => el.querySelector(s);
-  let tasks = null, events = null;
-  // 一個月內的行程：課程（有時間、無點數）＋進度
-  function drawAgenda() {
-    if (!tasks || !events) return;
-    const rows = range(today, 31).map((d) => {
-      const evs = eventsOn(events, d);
-      const ts = tasks.filter((t) => t.date === d && t.status !== 'rejected');
-      if (!evs.length && !ts.length) return '';
-      const rel = labelRelative(d);
-      return `<li><div class="agenda-date">${labelMD(d)}${rel ? `<span class="rel">${rel}</span>` : ''}</div><ul>
-        ${evs.map((e) => `<li class="agenda-item"><i class="dot" style="--s:${esc(subjectOf(e.subject).color)}"></i> <strong>${esc(e.start || '')}</strong> ${esc(e.title)}</li>`).join('')}
-        ${ts.map((t) => `<li class="agenda-item"><i class="dot" style="--s:${esc(subjectOf(t.subject).color)}"></i> ${esc(t.title)} ${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}</li>`).join('')}
-      </ul></li>`;
-    }).join('');
-    $('#month').innerHTML = rows ? `<ul class="agenda">${rows}</ul>` : '<p class="empty">接下來一個月還沒有安排 ☀️</p>';
-  }
   let pendingItems = [], pendingTasks = [], pendingRedeem = [], unscheduled = [];
   const drawPending = () => {
     const pts = pendingItems.reduce((s, i) => s + (i.points || 0), 0);
@@ -90,9 +74,7 @@ export function mountHome(el, { kid }) {
       $('#goal').hidden = !g;
       $('#goal').innerHTML = g;
     }, (e) => showError(e, '讀取點數')),
-    watchPendingItems(kid, (l) => { pendingItems = l; drawPending(); }, (e) => showError(e, '讀取待核可')),
-    watchTasksRange(kid, today, addDays(today, 30), (t) => { tasks = t; drawAgenda(); }, (e) => showError(e, '讀取行程')),
-    watchEvents(kid, (list) => { events = list; drawAgenda(); }, (e) => showError(e, '讀取課程'))
+    watchPendingItems(kid, (l) => { pendingItems = l; drawPending(); }, (e) => showError(e, '讀取待核可'))
   ];
   unsubs.push(watchUnscheduled(kid, (l) => { unscheduled = l; drawPending(); }, (e) => showError(e)));
   if (isMom()) {
@@ -107,5 +89,6 @@ export function mountHome(el, { kid }) {
 
   if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });
   const cleanPanel = mountChecklistPanel($('#today'), { kid, date: today });
-  return () => { unsubs.forEach((u) => u()); cleanPanel(); };
+  const cleanCal = mountEventCalendar($('#calendar'), { kid });
+  return () => { unsubs.forEach((u) => u()); cleanPanel(); cleanCal(); };
 }
