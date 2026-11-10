@@ -266,9 +266,10 @@ export function mountSchedule(el, { kid }) {
         <div class="field"><span>科目</span>${subjectChips('subject', subjectList(), t.subject || '')}</div>
         <label class="field"><span>內容</span><input name="title" maxlength="60" value="${esc(t.title)}"></label>
         <div class="field-row">
-          <label class="field"><span>日期${t.kind === 'weekly' ? `（${labelMD(t.week)}–${labelMD(t.weekEnd)}，可留空）` : ''}</span><input name="date" type="date" value="${t.date}" ${t.kind === 'weekly' ? `min="${t.week}" max="${t.weekEnd}"` : ''}></label>
+          <label class="field"><span>日期</span><input name="date" type="date" value="${t.date}" ${t.kind === 'weekly' ? `min="${t.week}" max="${t.weekEnd}"` : ''}></label>
           <label class="field"><span>點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${t.points || (t.status === 'pending' ? state.settings.defaultTaskPoints ?? 1 : 0)}"></label>
         </div>
+        ${t.kind === 'weekly' ? `<p class="field-hint" style="margin:-6px 0 12px">📦 本週進度：日期可留空讓孩子自己排，限 ${labelMD(t.week)}～${labelMD(t.weekEnd)}</p>` : ''}
         <label class="field"><span>說明</span><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></label>
         <label class="field"><span>💬 給孩子的建議（孩子看得到）</span><textarea name="momNote" rows="2" maxlength="200">${esc(t.momNote)}</textarea></label>`,
       buttons: [
@@ -318,7 +319,7 @@ export function mountSchedule(el, { kid }) {
           <div class="field"><span>每週哪幾天？</span>${chipChecks('weekdays', WD_ORDER.map((d) => ({ value: String(d), label: WEEKDAYS[d] })), wds.map(String))}</div>
           <div class="field-row">
             <label class="field"><span>從哪天開始</span><input name="from" type="date" value="${esc(ev?.from || date)}"></label>
-            <label class="field"><span>到哪天結束（選填）</span><input name="until" type="date" value="${esc(ev?.until || '')}"></label>
+            <label class="field"><span>結束日（選填）</span><input name="until" type="date" value="${esc(ev?.until || '')}"></label>
           </div>
         </div>
         <label class="field when-once"><span>日期</span><input name="date" type="date" value="${esc(ev?.date || date)}"></label>

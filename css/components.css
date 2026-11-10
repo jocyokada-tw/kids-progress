@@ -36,8 +36,15 @@
   font-size: 17px; /* 避免 iOS 自動放大 */ width: 100%;
 }
 .field input:focus, .field textarea:focus, .select:focus { border-color: var(--kid); outline: none; }
-.field-row { display: flex; gap: 10px; }
-.field-row .field { flex: 1; }
+.field input, .field select, .field textarea { min-width: 0; max-width: 100%; }
+/* iOS Safari：日期／時間欄位預設有固定的最小寬度，空白時也不會縮小，並排時會重疊 */
+.field input[type=date], .field input[type=time] {
+  -webkit-appearance: none; appearance: none; display: block; width: 100%; min-height: var(--tap); line-height: 1.3; text-align: left;
+}
+.field input[type=date]::-webkit-date-and-time-value, .field input[type=time]::-webkit-date-and-time-value { text-align: left; min-height: 1.3em; }
+.field-row { display: flex; gap: 10px; flex-wrap: wrap; align-items: flex-start; }
+.field-row .field { flex: 1 1 140px; min-width: 0; }
+.field-hint { font-weight: 400; font-size: .8rem; color: var(--muted); }
 .form-error, .modal-error { color: var(--bad); font-weight: 600; }
 .pin-input { width: 100%; font-size: 2rem; text-align: center; letter-spacing: .5em; min-height: 64px; border: 2px solid var(--line); border-radius: 14px; }
 
