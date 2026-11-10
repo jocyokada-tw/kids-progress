@@ -83,6 +83,8 @@ export function mountChecklistPanel(el, { kid, date }) {
       switch (b.dataset.act) {
         case 'toggle': {
           if (it.review === 'approved') return toast('已經入帳囉，不能取消 ✓');
+          // 小孩送出後就鎖定，只有媽媽可以退回
+          if (!mom && it.review === 'pending') return toast('已經送出等媽媽核可囉 🔒 要取消的話請媽媽退回');
           const done = !it.done;
           b.disabled = true;
           await setItemDone(it.id, done);

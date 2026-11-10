@@ -30,6 +30,13 @@ export const onTaskUpdated = onDocumentUpdated('families/{fid}/tasks/{id}', asyn
   const { fid, id } = event.params;
   const b = event.data.before.data();
   const a = event.data.after.data();
+  if (a.kind === 'weekly' && b.date && !a.date && a.status === 'approved') {
+    await notify(fid, a.kidId, 'weekly', {
+      title: '📦 媽媽退回了本週進度的日期', body: `「${clip(a.title, 30)}」請重新排要做的日期${a.momNote ? `\n💬 ${clip(a.momNote)}` : ''}`,
+      url: `#/k/${a.kidId}/schedule`, tag: `task-${id}`
+    });
+    return;
+  }
   if (b.status === a.status) return;
   const note = a.momNote ? `\n💬 ${clip(a.momNote)}` : '';
   if (b.status === 'pending' && a.status === 'approved') {

@@ -148,8 +148,11 @@ test('小孩可以勾選，但不能自己核可', async () => {
   await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
   await assertFails(updateDoc(ref, { review: 'approved' }));
   await assertFails(updateDoc(ref, { points: 99 }));
-  await assertSucceeds(updateDoc(ref, { done: false, doneAt: null, review: 'none' }));
+  await assertFails(updateDoc(ref, { done: false, doneAt: null, review: 'none' })); // 送出後不能自己取消
   await assertFails(deleteDoc(ref));
+  // 媽媽退回後可以重新勾選
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: false, doneAt: null, review: 'returned', returnNote: 'x' }));
+  await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
 });
 test('已入帳的項目，小孩不能取消', async () => {
   await updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: true, review: 'approved' });
@@ -256,12 +259,14 @@ async function seedWeekly(over = {}) {
     points: 3, createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false, ...over
   }));
 }
-test('本週進度：小孩可以排到同一週的某一天、改天、放回待安排', async () => {
+test('本週進度：小孩可以排到同一週的某一天，排定後不能自己改；媽媽退回後可重排', async () => {
   await seedWeekly();
   const ref = doc(db('a'), F, 'tasks/w1');
   await assertSucceeds(updateDoc(ref, { date: '2026-11-11', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
+  await assertFails(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(doc(db('mom'), F, 'tasks/w1'), { date: '' }));
   await assertSucceeds(updateDoc(ref, { date: '2026-11-15', updatedAt: serverTimestamp() }));
-  await assertSucceeds(updateDoc(ref, { date: '', updatedAt: serverTimestamp() }));
   await assertSucceeds(getDocs(query(collection(db('a'), F, 'tasks'), where('kidId', '==', 'kidA'), where('date', '==', ''))));
 });
 test('本週進度：不能排到別週、不能改點數或內容、入帳後不能改', async () => {

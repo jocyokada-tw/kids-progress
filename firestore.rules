@@ -92,14 +92,13 @@ service cloud.firestore {
               && kidTaskShape(request.resource.data)
               && request.resource.data.kidId == resource.data.kidId
               && request.resource.data.momNote == resource.data.momNote)
-          // 本週進度：小孩只能改日期，且只能排在同一週內（或放回待安排）；入帳後就不能再改
+          // 本週進度：小孩只能把「還沒排」的進度排到同一週的某一天；排定後不能自己改，要媽媽退回（清空日期）才能重排
           || (canKid(resource.data.kidId) && resource.data.get('kind', '') == 'weekly'
-              && resource.data.get('itemApproved', false) != true
+              && resource.data.date == ''
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'updatedAt'])
-              && (request.resource.data.date == ''
-                  || (isDate(request.resource.data.date)
-                      && request.resource.data.date >= resource.data.week
-                      && request.resource.data.date <= resource.data.weekEnd)));
+              && isDate(request.resource.data.date)
+              && request.resource.data.date >= resource.data.week
+              && request.resource.data.date <= resource.data.weekEnd);
         allow delete: if isMom()
           || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending');
       }
@@ -134,12 +133,11 @@ service cloud.firestore {
               && isDate(request.resource.data.date)
               && request.resource.data.done == false && request.resource.data.review == 'none'
               && sourceOk(request.resource.data));
-        // 小孩只能勾選／取消勾選，不能自己核可；已入帳的不能再改
+        // 小孩只能把未完成（或被退回）的項目勾選送出，不能自己核可；送出後不能取消，只有媽媽能退回
         allow update: if isMom()
-          || (canKid(resource.data.kidId) && resource.data.review != 'approved'
+          || (canKid(resource.data.kidId) && resource.data.review in ['none', 'returned']
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'doneAt', 'review'])
-              && ((request.resource.data.done == true && request.resource.data.review == 'pending')
-                  || (request.resource.data.done == false && request.resource.data.review == 'none')));
+              && request.resource.data.done == true && request.resource.data.review == 'pending');
         allow delete: if isMom();
       }
 

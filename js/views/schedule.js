@@ -1,7 +1,6 @@
 import { state, isMom, memberName, subjects, subjectOf, OTHER_SUBJECT } from '../state.js';
 import { esc, modal, toast, showError, chipChecks, chipRadios, subjectChips, confirmDialog } from '../ui.js';
-import { watchTasksRange, createTasks, kidUpdateTask, momSaveTask, deleteTask, watchUnscheduled, createWeeklyTask, scheduleWeekly, moveWeeklyTo } from '../store/tasks.js';
-import { getItemOnce } from '../store/checklist.js';
+import { watchTasksRange, createTasks, kidUpdateTask, momSaveTask, deleteTask, watchUnscheduled, createWeeklyTask, scheduleWeekly, moveWeeklyTo, unscheduleWeekly } from '../store/tasks.js';
 import { watchEvents, eventsOn, saveEvent, skipEventOn, deleteEvent } from '../store/events.js';
 import { todayStr, addDays, weekStart, range, labelMD, weekday, isDateStr, WEEKDAYS } from '../utils/date.js';
 import { TASK_STATUS } from './home.js';
@@ -148,7 +147,8 @@ export function mountSchedule(el, { kid }) {
       title: `「${t.title}」要排在哪一天？`,
       html: `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span> ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
         ${t.note ? `<p class="pre muted">${esc(t.note)}</p>` : ''}
-        ${chipRadios('date', opts, t.date && opts.some((o) => o.value === t.date) ? t.date : null)}`,
+        ${chipRadios('date', opts, t.date && opts.some((o) => o.value === t.date) ? t.date : null)}
+        ${mom ? '' : '<p class="muted small">⚠️ 想清楚再排喔！排好之後不能自己改日期，只有媽媽可以退回重排。</p>'}`,
       buttons: [...extraButtons, { id: 'ok', label: '排好了', kind: 'primary' }],
       validate: (id, d) => (id === 'ok' && !d.date ? '請選一天' : null)
     });
@@ -180,22 +180,16 @@ export function mountSchedule(el, { kid }) {
     } catch (e) { showError(e); }
   }
 
-  /** 小孩點已排好的本週進度：可以改天或放回待安排（勾選完成後就不能改） */
+  /** 小孩點已排好的本週進度：排定後不能自己改日期，要改請媽媽退回 */
   async function openKidWeekly(t) {
-    const it = await getItemOnce(kid, t.date, t.id).catch(() => null);
-    const locked = t.itemApproved || (it && (it.done || it.review === 'approved'));
-    const info = `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span>
-      📦 本週進度・排在 ${labelMD(t.date)} ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
-      ${t.note ? `<p class="pre">${esc(t.note)}</p>` : ''}${t.momNote ? `<div class="advice">💬 媽媽的建議：${esc(t.momNote)}</div>` : ''}`;
-    if (locked || t.weekEnd < today) {
-      await modal({ title: t.title, html: info + (locked ? '<p class="muted small">已經勾選完成，不能改天囉。</p>' : ''), buttons: [{ id: 'ok', label: '好', kind: 'primary' }] });
-      return;
-    }
-    const r = await pickDay(t, today, [{ id: 'unschedule', label: '放回待安排' }]);
-    try {
-      if (r.id === 'ok' && r.data.date !== t.date) { await scheduleWeekly(t.id, r.data.date); toast(`改到 ${labelMD(r.data.date)} 了`, 'ok'); }
-      if (r.id === 'unschedule') { await scheduleWeekly(t.id, ''); toast('已放回待安排'); }
-    } catch (e) { showError(e); }
+    await modal({
+      title: t.title,
+      html: `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span>
+        📦 本週進度・排在 ${labelMD(t.date)} ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
+        ${t.note ? `<p class="pre">${esc(t.note)}</p>` : ''}${t.momNote ? `<div class="advice">💬 媽媽的建議：${esc(t.momNote)}</div>` : ''}
+        <p class="muted small">🔒 日期排好就不能自己改了。真的需要改的話，請媽媽退回重排。</p>`,
+      buttons: [{ id: 'ok', label: '好', kind: 'primary' }]
+    });
   }
 
   // ---------- 進度 ----------
@@ -274,11 +268,13 @@ export function mountSchedule(el, { kid }) {
         <label class="field"><span>💬 給孩子的建議（孩子看得到）</span><textarea name="momNote" rows="2" maxlength="200">${esc(t.momNote)}</textarea></label>`,
       buttons: [
         { id: 'delete', label: '刪除', kind: 'danger' },
-        { id: 'reject', label: '退回' },
+        t.kind === 'weekly'
+          ? (t.date && !t.itemApproved ? [{ id: 'unschedule', label: '退回重排' }] : [])
+          : [{ id: 'reject', label: '退回' }],
         { id: 'ok', label: t.status === 'approved' ? '儲存' : '確認並儲存', kind: 'primary' }
-      ],
+      ].flat(),
       validate: (id, d) => {
-        if (id === 'delete') return null;
+        if (id === 'delete' || id === 'unschedule') return null;
         if (t.kind === 'weekly') {
           if (!d.title) return '請填寫內容';
           if (d.date && (!isDateStr(d.date) || d.date < t.week || d.date > t.weekEnd)) return '日期要在同一週內，或留空讓孩子自己排';
@@ -291,6 +287,11 @@ export function mountSchedule(el, { kid }) {
     try {
       if (r.id === 'delete') {
         if (await confirmDialog(`刪除「${t.title}」？`, { danger: true, okLabel: '刪除' })) { await deleteTask(t.id); toast('已刪除'); }
+        return;
+      }
+      if (r.id === 'unschedule') {
+        await unscheduleWeekly(t, r.data.momNote || '');
+        toast('已退回，孩子可以重新排日期');
         return;
       }
       const patch = { title: r.data.title, date: r.data.date, note: r.data.note, momNote: r.data.momNote, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0) };
