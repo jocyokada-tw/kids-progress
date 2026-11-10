@@ -1,6 +1,6 @@
 import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints } from '../ui.js';
-import { watchChecklist, setItemDone, approveItem, returnItem, grantBonusIfComplete } from '../store/checklist.js';
+import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus } from '../store/checklist.js';
 import { todayStr } from '../utils/date.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
@@ -15,12 +15,14 @@ const STATUS = {
 /** 某個小孩某一天的檢查清單（儀表板與清單頁共用） */
 export function mountChecklistPanel(el, { kid, date }) {
   let items = null;
+  let complete = false;
+  let bonusTried = false;
   const mom = isMom();
   const future = date > todayStr();
 
   const unsub = future ? null : watchChecklist(kid, date, {
     canReconcile: !!state.device.isMom,
-    onItems: (list) => { items = list; draw(); },
+    onItems: (list, isComplete) => { items = list; complete = isComplete; draw(); maybeBonus(); },
     onError: (e) => showError(e, '讀取清單')
   });
 
@@ -33,7 +35,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     }
     const total = items.length;
     const doneN = items.filter((i) => i.done || i.review === 'approved').length;
-    const approvedAll = items.every((i) => i.review === 'approved');
+    const approvedAll = complete;
     const earned = items.filter((i) => i.review === 'approved').reduce((s, i) => s + (i.points || 0), 0);
     const waiting = items.filter((i) => i.review === 'pending').reduce((s, i) => s + (i.points || 0), 0);
     const bonus = Number(state.settings.bonusAllDone) || 0;
@@ -86,10 +88,17 @@ export function mountChecklistPanel(el, { kid, date }) {
       </li>`;
   }
 
-  async function afterApprove() {
+  // 媽媽裝置看到「全部完成」時發放額外獎勵。
+  // 不只在按下核可的當下檢查：之前漏發的日子，媽媽打開那天的清單也會補發（每天最多一次）。
+  async function maybeBonus() {
     const bonus = Number(state.settings.bonusAllDone) || 0;
-    if (await grantBonusIfComplete(kid, date, bonus)) toast(`🎉 全部完成！額外獎勵 +${bonus}`, 'ok');
+    if (!mom || !complete || bonusTried || !(bonus > 0) || !navigator.onLine) return;
+    bonusTried = true;
+    try {
+      if (await grantBonus(kid, date, bonus)) toast(`🎉 全部完成！額外獎勵 +${bonus}`, 'ok');
+    } catch (e) { bonusTried = false; showError(e, '發放獎勵'); }
   }
+  const afterApprove = () => maybeBonus();
 
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-act]');

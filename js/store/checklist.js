@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, getDoc, getDocs, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, getDoc, runTransaction, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs } from './paths.js';
 import { watchRoutines } from './routines.js';
 import { watchTasksOnDate } from './tasks.js';
@@ -55,7 +55,11 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
     const visible = items
       .filter((it) => it.review === 'approved' || expected.has(it.id) || (it.sourceType === 'words' && it.done))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title));
-    onItems(visible);
+    // 「全部完成」的判斷以畫面上看到的清單為準：每個應該有的項目都已建立而且已核可
+    const have0 = new Map(items.map((it) => [it.id, it]));
+    const complete = visible.length > 0 && visible.every((it) => it.review === 'approved')
+      && [...expected.keys()].every((id) => have0.get(id)?.review === 'approved');
+    onItems(visible, complete);
     if (!isPastOrToday) return;
 
     const have = new Map(items.map((it) => [it.id, it]));
@@ -155,12 +159,9 @@ export async function approveItem(id) {
   });
 }
 
-/** 當天全部項目都核可後，發放「全部完成」額外獎勵（每天最多一次） */
-export async function grantBonusIfComplete(kidId, date, bonus) {
+/** 發放「全部完成」額外獎勵（流水帳 ID 固定，每天最多一次；是否全部完成由 watchChecklist 判斷） */
+export async function grantBonus(kidId, date, bonus) {
   if (!(bonus > 0)) return false;
-  const snap = await getDocs(query(fcol('items'), where('kidId', '==', kidId), where('date', '==', date)));
-  const list = docs(snap);
-  if (!list.length || !list.every((it) => it.review === 'approved')) return false;
   const lref = fdoc('ledger', `bonus_${kidId}_${date}`);
   return runTransaction(db, async (tx) => {
     const l = await tx.get(lref);
