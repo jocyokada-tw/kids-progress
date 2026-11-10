@@ -5,12 +5,11 @@ import { todayStr, addDays, labelMD } from '../utils/date.js';
 import { speak, canSpeak } from '../utils/speak.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey
+  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
 const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
-const sameSpelling = (a, b) => wordKey(a).replace(/[’`]/g, "'") === wordKey(b).replace(/[’`]/g, "'");
 
 /** 每日單字：小孩 → 學習與測驗；媽媽 → 學習狀況 */
 export function mountWords(el, { kid }) {

@@ -5,7 +5,12 @@ import { addDays } from './date.js';
 export const INTERVALS = [1, 2, 4, 7, 15, 30, 60];
 const MAX_REVIEW = 20;
 
-export const wordKey = (w) => String(w || '').trim().toLowerCase().replace(/\s+/g, ' ');
+// 分大小寫：May（五月）和 may（可以）是不同的字
+export const wordKey = (w) => String(w || '').trim().replace(/\s+/g, ' ');
+
+/** 拼字比對：不分大小寫，忽略「...」與多餘空白（as ... as 打成 as as 也算對），彎引號視為直引號 */
+const normSpell = (s) => String(s || '').toLowerCase().replace(/[’`]/g, "'").replace(/\.{2,}|…/g, ' ').replace(/\s+/g, ' ').trim();
+export const sameSpelling = (a, b) => normSpell(a) === normSpell(b);
 
 /**
  * 把貼上的文字轉成單字。每行一個：「英文, 中文, 例句」（逗號、Tab、｜ 都可以；例句可省略），
