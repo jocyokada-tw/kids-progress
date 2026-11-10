@@ -107,6 +107,10 @@ firebase deploy --only firestore --project 你的專案ID
 
 ## 常見問題
 
+- **合併後網站沒有更新（GitHub 寄來「pages build and deployment … failed」）**：通常是 GitHub 發佈服務暫時出問題，不是程式錯誤。
+  到 repo 的「Actions」→ 點那次失敗的「pages build and deployment」→ 右上角「Re-run all jobs」。
+  如果重跑後一直卡在排隊，合併下一個 PR（任何新的 commit 到 `main`）就會重新發佈；也可以到 <https://www.githubstatus.com> 看 Pages 是否故障。
+
 - **畫面顯示「尚未設定 Firebase」**：`config.js` 沒填好或沒 push。
 - **出現「沒有權限」**：安全規則沒有發布，或這台裝置被移除了（重新配對即可）。
 - **出現「資料庫缺少索引」**：依第 3 步建立 `tasks` 的複合索引（建立需要幾分鐘）。
