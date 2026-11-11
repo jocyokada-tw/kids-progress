@@ -1,8 +1,8 @@
 import { state, isMom, memberName } from '../state.js';
-import { esc, toast, showError } from '../ui.js';
+import { esc, toast, showError, modal } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, addDays, labelMD } from '../utils/date.js';
-import { speak, canSpeak } from '../utils/speak.js';
+import { speak, canSpeak, englishVoices, currentVoice, setVoice, voiceQuality } from '../utils/speak.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
   startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling
@@ -43,7 +43,7 @@ export function mountWords(el, { kid }) {
     if (!ready()) { el.innerHTML = '<p class="empty">載入中…</p>'; return; }
     const learned = Object.keys(progress).length;
     const head = `<div class="page-head"><h1>📖 ${esc(memberName(kid))}的每日單字</h1>
-      ${mom ? '<button class="btn btn-ghost" data-act="manage">管理字庫</button>' : ''}</div>`;
+      <div class="btn-row"><button class="btn btn-ghost" data-act="voice">🔈 聲音</button>${mom ? '<button class="btn btn-ghost" data-act="manage">管理字庫</button>' : ''}</div></div>`;
     if (!lists.length) {
       el.innerHTML = `${head}<section class="card"><p class="empty">${mom ? '還沒有給這個孩子的字庫。到「設定 → 每日單字」新增字庫並貼上單字。' : '媽媽還沒有準備單字喔 📚'}</p></section>`;
       return;
@@ -120,6 +120,32 @@ export function mountWords(el, { kid }) {
         ${sessions.length ? `<ul class="rows">${sessions.slice(0, 10).map((s) => `<li class="row"><span class="grow">${labelMD(s.date)}<br><span class="muted small">新字 ${s.newWords.length}・複習 ${s.reviewWords.length}</span></span>
           <span class="tag ${!s.finished ? 'tag-wait' : s.perfect ? 'tag-ok' : ''}">${!s.finished ? '未完成' : s.perfect ? '一次全對' : `錯 ${s.wrong.length} 個`}</span></li>`).join('')}</ul>` : '<p class="empty">還沒有紀錄</p>'}
       </section>`;
+  }
+
+  // ---------- 選擇發音的聲音（每台裝置各自設定） ----------
+  const Q_LABEL = { 3: '高品質', 2: '優化', 1: '一般' };
+  async function chooseVoice() {
+    if (!canSpeak()) return toast('這台裝置不支援發音');
+    const voices = englishVoices();
+    const cur = currentVoice();
+    const best = voices.length ? Math.max(...voices.map(voiceQuality)) : 0;
+    const r = await modal({
+      title: '🔈 發音的聲音',
+      html: `
+        ${best < 2 ? `<div class="notice small"><strong>想要更自然的聲音？</strong><br>這台裝置目前只有「一般」語音，聽起來比較像機器人。到 iPhone／iPad 的<br><strong>設定 → 輔助使用 → 語音內容 → 聲音 → 英文 → 英文（美國）</strong><br>選一個聲音（例如 Ava 或 Samantha），下載「優化」或「高品質」版本，再回到這裡選它。</div>` : ''}
+        ${voices.length ? `<div class="voice-list">${voices.map((v) => `
+          <label class="voice-row"><input type="radio" name="voice" value="${esc(v.voiceURI)}" ${cur && v.voiceURI === cur.voiceURI ? 'checked' : ''}>
+            <span class="grow">${esc(v.name.replace(/\s*\(.*\)$/, ''))} <span class="muted small">${esc(v.lang)}</span></span>
+            <span class="tag ${voiceQuality(v) > 1 ? 'tag-ok' : ''}">${Q_LABEL[voiceQuality(v)]}</span>
+            <button type="button" class="icon-btn speak" data-try="${esc(v.voiceURI)}" aria-label="試聽">🔊</button></label>`).join('')}</div>` : '<p class="empty">找不到英文語音，請稍後再試一次。</p>'}
+        <p class="muted small">按 🔊 試聽。這個設定只影響這台裝置。</p>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '使用這個聲音', kind: 'primary' }],
+      onOpen: (w) => w.addEventListener('click', (e) => {
+        const t = e.target.closest('[data-try]');
+        if (t) { e.preventDefault(); speak('Hello! This is how I sound. Apple, library, wonderful.', false, t.dataset.try); }
+      })
+    });
+    if (r.id === 'ok' && r.data.voice) { setVoice(r.data.voice); speak('Okay!'); toast('已更換聲音', 'ok'); }
   }
 
   // ---------- 練習流程 ----------
@@ -229,6 +255,7 @@ export function mountWords(el, { kid }) {
     if (!b) return;
     switch (b.dataset.act) {
       case 'manage': go('/settings'); break;
+      case 'voice': chooseVoice(); break;
       case 'start': b.disabled = true; start().catch((err) => { showError(err); b.disabled = false; }); break;
       case 'studyNext': run.study.shift(); draw(); break;
       case 'pick': answer(b.dataset.v === run.dict.get(run.queue[0].k).zh, b.dataset.v); break;
