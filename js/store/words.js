@@ -1,5 +1,6 @@
 import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, serverTimestamp, FieldPath, deleteField } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
+export { makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint, REVIEW_TYPES } from '../utils/srs.js';
 export { INTERVALS, wordKey, sameSpelling, buildDict, parseWords, wordsToText, planToday, nextProgress } from '../utils/srs.js';
 
 // 每日單字

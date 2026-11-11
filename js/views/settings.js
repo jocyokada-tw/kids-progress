@@ -9,7 +9,7 @@ import { watchPairRequests, approvePair, rejectPair, watchDevices, removeDevice 
 import { WEEKDAYS } from '../utils/date.js';
 import { isValidPin } from '../utils/crypto.js';
 import { needOnline } from '../net.js';
-import { WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordList, loadListWords, saveListWords, parseWords, wordsToText } from '../store/words.js';
+import { REVIEW_TYPES, WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordList, loadListWords, saveListWords, parseWords, wordsToText } from '../store/words.js';
 import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -264,6 +264,10 @@ export function mountSettings(el) {
           <label class="field"><span>完成點數</span><input name="points" type="number" inputmode="numeric" min="0" max="99" value="${c.points}"></label>
           <label class="field"><span>一次全對加點</span><input name="perfectBonus" type="number" inputmode="numeric" min="0" max="99" value="${c.perfectBonus}"></label>
         </div>
+        <div class="field"><span>複習的題型（隨機搭配；「看中文拼字」固定會有）</span>${chipChecks('types', [
+            { value: 'cloze', label: '例句填空（拼字）' }, { value: 'clozeMc', label: '例句填空（選擇）' }, { value: 'listen', label: '聽音拼字' },
+            { value: 'scramble', label: '字母重組' }, { value: 'match', label: '配對' }], c.types || REVIEW_TYPES)}
+          <span class="field-hint">新單字固定考「選意思」和「拼字」。補習班單字在考試前一律出「聽音拼字」（和老師唸、孩子寫的考法一樣）。提示要點了才會出現；看了提示，那個字下次會照原本的間隔再複習。</span></div>
         <div class="field"><span>新單字的順序（一般字庫）</span>${chipRadios('order', [{ value: 'random', label: '🎲 隨機抽選' }, { value: 'list', label: '照字庫順序' }], c.order === 'list' ? 'list' : 'random')}
           <span class="field-hint">補習班單字固定照你輸入的順序，並且優先學。</span></div>
         <button class="btn btn-primary" type="submit">儲存單字設定</button>
@@ -368,7 +372,8 @@ export function mountSettings(el) {
         toast('規則已儲存', 'ok');
       } else if (f.id === 'wordCfgForm') {
         const n = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
-        await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99), order: d.order === 'list' ? 'list' : 'random' } });
+        await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99), order: d.order === 'list' ? 'list' : 'random',
+          types: new FormData(f).getAll('types').filter((t) => REVIEW_TYPES.includes(t)) } });
         toast('單字設定已儲存', 'ok');
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);

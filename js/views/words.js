@@ -6,7 +6,8 @@ import { speak, canPlaySound, stopSpeaking, englishVoices, currentVoice, setVoic
 import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict
+  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
+  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
@@ -183,17 +184,40 @@ export function mountWords(el, { kid }) {
     const p = plan();
     if (!session) await startSession(kid, today, p.newWords, p.reviewWords);
     const mc = p.newWords.filter((k) => p.dict.get(k).zh && p.dict.size >= 3).map((k) => ({ k, type: 'mc' }));
-    const spell = shuffle([...p.newWords, ...p.reviewWords]).map((k) => ({ k, type: 'spell' }));
+    // 快考試的補習班單字一律「聽音拼字」：考試是老師唸、孩子拼
+    const dictation = new Set(lists.filter((l) => l.kind === 'cram' && l.testDate && l.testDate >= today).flatMap((l) => l.words.map((x) => wordKey(x.w))));
+    const spellNew = shuffle(p.newWords).map((k) => ({ k, type: dictation.has(k) ? 'listen' : 'spell' }));
+    const review = buildReviewQuestions(p.reviewWords, p.dict, progress, { enabled: cfg.types, dictation });
+    const queue = [...shuffle(mc), ...spellNew, ...review];
     run = {
       dict: p.dict, newWords: p.newWords, reviewWords: p.reviewWords,
-      study: [...p.newWords], queue: [...shuffle(mc), ...spell], total: mc.length + spell.length, done: 0,
-      wrong: new Set((session && session.wrong) || []), feedback: null, options: null
+      study: [...p.newWords], queue, total: queue.reduce((n, q) => n + (q.ks ? q.ks.length : 1), 0), done: 0,
+      wrong: new Set((session && session.wrong) || []), hinted: new Set(), feedback: null, st: null
     };
-    // 先把今天會用到的發音準備好（單字＋新字的例句），播放時就不用等
+    // 先把今天會用到的發音準備好（單字＋新字與填空題的例句），播放時就不用等
     const all = [...p.newWords, ...p.reviewWords].map((k) => p.dict.get(k));
-    prefetch([...all.map((x) => x.w), ...p.newWords.map((k) => p.dict.get(k).ex)]);
+    const clozeKs = review.filter((q) => q.type === 'cloze' || q.type === 'clozeMc').map((q) => q.k);
+    prefetch([...all.map((x) => x.w), ...[...p.newWords, ...clozeKs].map((k) => p.dict.get(k).ex)]);
     draw();
   }
+
+  const TITLES = {
+    mc: '這個字是什麼意思？', spell: '拼出這個字', listen: '聽發音，拼出這個字', cloze: '填空：看句子和中文，拼出缺的字',
+    clozeMc: '填空：選出句子裡缺的字', scramble: '把字母排回正確的順序', match: '配對：點一個英文，再點它的中文'
+  };
+  const AUTO_SPEAK = new Set(['mc', 'spell', 'listen', 'scramble']);
+  const spellForm = (x) => `
+    <form id="spell" autocomplete="off"><input class="spell-input" name="a" type="text" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-label="拼字" placeholder="在這裡拼字">
+      <div class="btn-row center">${x ? `<button class="btn btn-ghost" type="button" data-say="${esc(x.w)}" data-slow="1">🐢 慢慢唸</button>` : ''}<button class="btn btn-primary btn-lg" type="submit">送出</button></div></form>`;
+  const answerBox = (x, fb) => `<div class="spell-answer ${fb.ok ? 'right' : 'wrong'}">${fb.ok || fb.picked == null ? '' : `<span class="muted small">你的答案：${esc(fb.picked || '（沒有寫）')}</span><br>`}<strong>${esc(x.w)}</strong></div>`;
+  /** 提示：點了才看到（看過提示，這個字的複習間隔不會拉長）。kind: 'zh' 顯示中文；'letters' 顯示第一個字母與字數 */
+  const hintBox = (x, shown, kind = 'zh') => (!shown
+    ? '<button class="btn btn-ghost" type="button" data-act="hint">💡 看提示</button>'
+    : kind === 'letters' ? `<div class="hint-box letters">${esc(letterHint(x.w))}</div>`
+      : `<div class="hint-box">${posTag(x)}<span class="word-zh">${esc(x.zh || '（沒有中文）')}</span></div>`);
+  const clozeSentence = (cz, x, fb) => (fb
+    ? `<button class="cloze" data-say="${esc(x.ex)}">🔊 ${esc(cz.pre)}<mark>${esc(cz.shown)}</mark>${esc(cz.post)}</button>`
+    : `<p class="cloze">${esc(cz.pre)}<span class="blank"></span>${esc(cz.suffix)}${esc(cz.post)}</p>`);
 
   function drawRun() {
     const r = run;
@@ -215,59 +239,129 @@ export function mountWords(el, { kid }) {
       return;
     }
     const q = r.queue[0];
-    const x = r.dict.get(q.k);
     const fb = r.feedback;
-    let body;
-    if (q.type === 'mc') {
-      if (!r.options) {
-        const others = shuffle([...r.dict.values()].filter((o) => o.zh && o.zh !== x.zh)).slice(0, 3);
-        r.options = shuffle([x, ...others]).map((o) => o.zh);
+    const fresh = !r.st;
+    if (fresh) r.st = initState(q);
+    const st = r.st;
+    const x = q.k ? r.dict.get(q.k) : null;
+    const speakBtn = x ? `<button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>` : '';
+    let body = '';
+    switch (q.type) {
+      case 'mc':
+        body = `${speakBtn}<div class="word-big">${esc(x.w)}</div>
+          <div class="mc">${st.options.map((o) => `<button class="mc-opt ${fb ? (o === x.zh ? 'right' : o === fb.picked ? 'wrong' : '') : ''}" data-act="pick" data-v="${esc(o)}" ${fb ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+        break;
+      case 'spell':
+        body = `${speakBtn}${posTag(x)}<div class="word-zh">${esc(x.zh || '（聽發音拼字）')}</div>${fb ? answerBox(x, fb) : spellForm(x)}`;
+        break;
+      case 'listen':
+        body = `${speakBtn}${fb ? `${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>${answerBox(x, fb)}` : `${hintBox(x, st.hint)}${spellForm(x)}`}`;
+        break;
+      case 'cloze':
+        // 句子常常不只一個字能填，所以中文直接顯示；提示是第一個字母和字數
+        body = `${clozeSentence(st.cz, x, fb)}${posTag(x)}<div class="word-zh">${esc(x.zh || '')}</div>${fb ? answerBox(x, fb) : `${x.zh ? hintBox(x, st.hint, 'letters') : ''}${spellForm(null)}`}`;
+        break;
+      case 'clozeMc':
+        body = `${clozeSentence(st.cz, x, fb)}${fb ? `${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>` : hintBox(x, st.hint)}
+          <div class="mc">${st.options.map((o) => `<button class="mc-opt ${fb ? (o === x.w ? 'right' : o === fb.picked ? 'wrong' : '') : ''}" data-act="pick" data-v="${esc(o)}" ${fb ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
+        break;
+      case 'scramble': {
+        const built = st.picked.map((i) => st.tiles[i]).join('');
+        body = `${speakBtn}${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>
+          ${fb ? answerBox(x, fb) : `
+          <div class="tiles answer" aria-label="你排的字">${st.picked.map((i, n) => `<button class="tile" data-act="untile" data-n="${n}">${esc(st.tiles[i])}</button>`).join('') || '<span class="muted small">點下面的字母</span>'}</div>
+          <div class="tiles pool">${st.tiles.map((ch, i) => `<button class="tile" data-act="tile" data-i="${i}" ${st.picked.includes(i) ? 'disabled' : ''}>${esc(ch)}</button>`).join('')}</div>
+          <div class="btn-row center"><button class="btn btn-ghost" data-act="clearTiles" ${built ? '' : 'disabled'}>清除</button>
+            <button class="btn btn-primary btn-lg" data-act="submitTiles" ${st.picked.length === st.tiles.length ? '' : 'disabled'}>送出</button></div>`}`;
+        break;
       }
-      body = `<p class="q-title">這個字是什麼意思？</p>
-        <button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
-        <div class="word-big">${esc(x.w)}</div>
-        <div class="mc">${r.options.map((o) => `<button class="mc-opt ${fb ? (o === x.zh ? 'right' : o === fb.picked ? 'wrong' : '') : ''}" data-act="pick" data-v="${esc(o)}" ${fb ? 'disabled' : ''}>${esc(o)}</button>`).join('')}</div>`;
-    } else {
-      body = `<p class="q-title">拼出這個字</p>
-        <button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
-        ${posTag(x)}<div class="word-zh">${esc(x.zh || '（聽發音拼字）')}</div>
-        ${fb ? `<div class="spell-answer ${fb.ok ? 'right' : 'wrong'}">${fb.ok ? '' : `<span class="muted small">你寫的：${esc(fb.picked || '（沒有寫）')}</span><br>`}<strong>${esc(x.w)}</strong></div>` : `
-        <form id="spell" autocomplete="off"><input class="spell-input" name="a" type="text" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-label="拼字" placeholder="在這裡拼字">
-          <div class="btn-row center"><button class="btn btn-ghost" type="button" data-say="${esc(x.w)}" data-slow="1">🐢 慢慢唸</button><button class="btn btn-primary btn-lg" type="submit">送出</button></div></form>`}`;
+      case 'match':
+        body = `<div class="match">
+          <div class="match-col">${st.left.map((k) => `<button class="match-item ${st.done.has(k) ? 'done' : ''} ${st.sel === k ? 'sel' : ''} ${st.bad && st.bad[0] === k ? 'bad' : ''}" data-act="matchL" data-k="${esc(k)}" ${st.done.has(k) ? 'disabled' : ''}>${esc(r.dict.get(k).w)}</button>`).join('')}</div>
+          <div class="match-col">${st.right.map((k) => `<button class="match-item zh ${st.done.has(k) ? 'done' : ''} ${st.bad && st.bad[1] === k ? 'bad' : ''}" data-act="matchR" data-k="${esc(k)}" ${st.done.has(k) ? 'disabled' : ''}>${esc(r.dict.get(k).zh)}</button>`).join('')}</div>
+        </div>`;
+        break;
     }
     el.innerHTML = `<div class="page-head"><h1>📝 測驗</h1>${quit}</div>${bar(r.done, r.total)}
-      <section class="card word-card">${body}
+      <section class="card word-card"><p class="q-title">${TITLES[q.type]}</p>${body}
         ${fb ? `<p class="fb ${fb.ok ? 'ok' : 'bad'}">${fb.ok ? '答對了！👍' : '再記一次，等一下會再考喔'}</p><button class="btn btn-primary btn-lg" data-act="qNext">繼續 ▶</button>` : ''}
       </section>`;
-    if (!fb) { speak(x.w); const inp = el.querySelector('.spell-input'); inp && inp.focus({ preventScroll: true }); }
+    if (!fb && fresh) {
+      if (AUTO_SPEAK.has(q.type)) speak(x.w);
+      const inp = el.querySelector('.spell-input');
+      inp && inp.focus({ preventScroll: true });
+    }
+  }
+
+  /** 每一題開始時準備它需要的東西（選項、挖空的句子、打亂的字母…） */
+  function initState(q) {
+    const r = run;
+    const x = q.k ? r.dict.get(q.k) : null;
+    const st = { hint: false };
+    if (q.type === 'mc') {
+      const others = shuffle([...r.dict.values()].filter((o) => o.zh && o.zh !== x.zh)).slice(0, 3);
+      st.options = shuffle([x, ...others]).map((o) => o.zh);
+    }
+    if (q.type === 'cloze' || q.type === 'clozeMc') st.cz = makeCloze(x.w, x.ex);
+    if (q.type === 'clozeMc') {
+      // 干擾選項優先挑詞性相同的字，比較不會一眼看出來
+      const pool = [...r.dict.values()].filter((o) => wordKey(o.w) !== q.k && !/\.\.\.|…/.test(o.w));
+      const same = shuffle(pool.filter((o) => x.pos && o.pos === x.pos));
+      const others = [...same, ...shuffle(pool.filter((o) => !same.includes(o)))].slice(0, 3);
+      st.options = shuffle([x, ...others]).map((o) => o.w);
+    }
+    if (q.type === 'scramble') { st.tiles = scrambleLetters(x.w); st.picked = []; }
+    if (q.type === 'match') { st.left = shuffle(q.ks); st.right = shuffle(q.ks); st.done = new Set(); st.sel = null; st.bad = null; }
+    return st;
+  }
+
+  function markWrong(k) {
+    if (run.wrong.has(k)) return;
+    run.wrong.add(k);
+    recordWrong(kid, today, k).catch((e) => showError(e, '記錄'));
   }
 
   function answer(ok, picked) {
     const r = run;
     const q = r.queue[0];
     r.feedback = { ok, picked };
-    if (!ok && !r.wrong.has(q.k)) {
-      r.wrong.add(q.k);
-      recordWrong(kid, today, q.k).catch((e) => showError(e, '記錄'));
-    }
+    if (!ok) markWrong(q.k);
     draw();
     if (!ok) speak(r.dict.get(q.k).w, true);
+  }
+
+  /** 配對題：點英文再點中文 */
+  function matchTap(side, k) {
+    const st = run.st;
+    if (side === 'L') { st.sel = k; st.bad = null; return draw(); }
+    if (!st.sel) return toast('先點左邊的英文');
+    if (st.sel === k) {
+      st.done.add(k); st.sel = null; st.bad = null;
+      speak(run.dict.get(k).w);
+      if (st.done.size === st.left.length) run.feedback = { ok: true };
+    } else {
+      markWrong(st.sel);
+      st.bad = [st.sel, k]; st.sel = null;
+      setTimeout(() => { if (run && run.st === st && st.bad) { st.bad = null; draw(); } }, 700);
+    }
+    draw();
   }
 
   async function nextQuestion() {
     const r = run;
     const q = r.queue.shift();
-    if (r.feedback.ok) r.done++; else r.queue.push(q);
-    r.feedback = null; r.options = null;
+    if (r.feedback.ok) r.done += q.ks ? q.ks.length : 1; else r.queue.push(q);
+    r.feedback = null; r.st = null;
     if (r.queue.length) return draw();
     // 全部完成
     const firstTryOk = new Set([...r.newWords, ...r.reviewWords].filter((k) => !r.wrong.has(k)));
     const sess = { newWords: r.newWords, reviewWords: r.reviewWords };
     const perfect = r.wrong.size === 0;
+    const hinted = r.hinted;
     run = null;
     el.innerHTML = '<p class="empty">儲存中…</p>';
     try {
-      await saveProgress(kid, nextProgress(sess, progress, firstTryOk, today));
+      await saveProgress(kid, nextProgress(sess, progress, firstTryOk, today, hinted));
       await finishSession(kid, today, perfect);
       await markWordsDone(kid, today, cfg.points);
       toast(perfect ? '一次全對！太厲害了 🎯' : '完成了！👏', 'ok');
@@ -278,8 +372,10 @@ export function mountWords(el, { kid }) {
   el.addEventListener('submit', (e) => {
     if (e.target.id !== 'spell') return;
     e.preventDefault();
-    const a = new FormData(e.target).get('a');
-    answer(sameSpelling(a, run.dict.get(run.queue[0].k).w), String(a).trim());
+    const a = String(new FormData(e.target).get('a') || '');
+    const q = run.queue[0];
+    const x = run.dict.get(q.k);
+    answer(q.type === 'cloze' ? clozeAccepts(a, x.w, run.st.cz) : sameSpelling(a, x.w), a.trim());
   });
   el.addEventListener('click', (e) => {
     const s = e.target.closest('[data-say]');
@@ -300,7 +396,24 @@ export function mountWords(el, { kid }) {
         break;
       case 'start': b.disabled = true; start().catch((err) => { showError(err); b.disabled = false; }); break;
       case 'studyNext': run.study.shift(); draw(); break;
-      case 'pick': answer(b.dataset.v === run.dict.get(run.queue[0].k).zh, b.dataset.v); break;
+      case 'pick': {
+        const q = run.queue[0];
+        const x = run.dict.get(q.k);
+        answer(b.dataset.v === (q.type === 'clozeMc' ? x.w : x.zh), b.dataset.v);
+        break;
+      }
+      case 'hint': run.st.hint = true; run.hinted.add(run.queue[0].k); draw(); break;
+      case 'tile': run.st.picked.push(Number(b.dataset.i)); draw(); break;
+      case 'untile': run.st.picked.splice(Number(b.dataset.n), 1); draw(); break;
+      case 'clearTiles': run.st.picked = []; draw(); break;
+      case 'submitTiles': {
+        const st = run.st;
+        const built = st.picked.map((i) => st.tiles[i]).join('');
+        answer(sameSpelling(built, run.dict.get(run.queue[0].k).w), built);
+        break;
+      }
+      case 'matchL': matchTap('L', b.dataset.k); break;
+      case 'matchR': matchTap('R', b.dataset.k); break;
       case 'qNext': nextQuestion(); break;
       case 'quit': run = null; draw(); break;
     }
