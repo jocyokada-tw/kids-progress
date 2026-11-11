@@ -293,9 +293,9 @@ export function mountSettings(el) {
         <label class="field"><span>名稱</span><input name="name" maxlength="30" value="${esc(l?.name || (k === 'cram' ? `補習班 ${labelMD(today)}` : ''))}" placeholder="例如：Flyers"></label>
         <div class="field"><span>給誰學？</span>${chipChecks('kids', KIDS.map((id) => ({ value: id, label: memberName(id) })), l?.kids || [])}</div>
         ${k === 'cram' ? `<label class="field"><span>考試日（考前一天和當天會整份複習）</span><input name="testDate" type="date" value="${esc(l ? l.testDate || '' : nextWed)}"></label>` : ''}
-        <label class="field"><span>單字（每行一個：英文, 中文, 例句）</span>
-          <textarea name="words" rows="9" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="apple, 蘋果, I eat an apple every day.&#10;banana, 香蕉&#10;library 圖書館">${esc(text)}</textarea>
-          <span class="field-hint">可以直接從 Excel 或筆記貼上。用逗號、Tab 或空白分開都可以；例句可以不寫。整份內容會以這裡為準。</span></label>`,
+        <label class="field"><span>單字（每行一個：英文, 詞性, 中文, 例句）</span>
+          <textarea name="words" rows="9" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="apple, n., 蘋果, I eat an apple every day.&#10;run, v., 跑&#10;banana, 香蕉&#10;library 圖書館">${esc(text)}</textarea>
+          <span class="field-hint">可以直接從 Excel 或筆記貼上。用逗號、Tab 或空白分開都可以；詞性（n.、v.、adj.…）和例句可以不寫。整份內容會以這裡為準。</span></label>`,
       buttons: [...(l ? [{ id: 'delete', label: '刪除', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
       validate: (id, d) => (id !== 'ok' ? null : !d.name ? '請輸入名稱' : !d.kids.length ? '請選擇給誰學' : null)
     });

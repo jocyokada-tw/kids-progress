@@ -9,6 +9,8 @@ import {
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
+/** 詞性小標籤（只顯示，不考） */
+const posTag = (x) => (x && x.pos ? `<span class="pos">${esc(x.pos)}</span> ` : '');
 const shuffle = (a) => { const r = [...a]; for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; } return r; };
 
 /** 每日單字：小孩 → 學習與測驗；媽媽 → 學習狀況 */
@@ -76,7 +78,7 @@ export function mountWords(el, { kid }) {
   function wordRows(words, wrong = []) {
     return `<ul class="word-list">${words.map((x) => `
       <li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
-        <span class="grow"><strong>${esc(x.w)}</strong> <span class="muted">${esc(x.zh)}</span>${x.ex ? `<br><span class="muted small">${esc(x.ex)}</span>` : ''}</span>
+        <span class="grow"><strong>${esc(x.w)}</strong> ${posTag(x)}<span class="muted">${esc(x.zh)}</span>${x.ex ? `<br><span class="muted small">${esc(x.ex)}</span>` : ''}</span>
         ${wrong.includes(wordKey(x.w)) ? '<span class="tag tag-bad">再加油</span>' : ''}</li>`).join('')}</ul>`;
   }
 
@@ -112,7 +114,7 @@ export function mountWords(el, { kid }) {
         }).join('')}
       </section>
       <section class="card"><h2>最常答錯的字</h2>
-        ${hard.length ? `<ul class="word-list">${hard.map(([k, p]) => { const x = dict.get(k); return `<li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button><span class="grow"><strong>${esc(x.w)}</strong> <span class="muted">${esc(x.zh)}</span></span><span class="tag tag-bad">錯 ${p.x} 次</span></li>`; }).join('')}</ul>` : '<p class="empty">目前沒有</p>'}
+        ${hard.length ? `<ul class="word-list">${hard.map(([k, p]) => { const x = dict.get(k); return `<li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button><span class="grow"><strong>${esc(x.w)}</strong> ${posTag(x)}<span class="muted">${esc(x.zh)}</span></span><span class="tag tag-bad">錯 ${p.x} 次</span></li>`; }).join('')}</ul>` : '<p class="empty">目前沒有</p>'}
       </section>
       <section class="card"><h2>最近的練習</h2>
         ${sessions.length ? `<ul class="rows">${sessions.slice(0, 10).map((s) => `<li class="row"><span class="grow">${labelMD(s.date)}<br><span class="muted small">新字 ${s.newWords.length}・複習 ${s.reviewWords.length}</span></span>
@@ -145,7 +147,7 @@ export function mountWords(el, { kid }) {
         <section class="card word-card">
           <button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
           <div class="word-big">${esc(x.w)}</div>
-          <div class="word-zh">${esc(x.zh || '')}</div>
+          ${posTag(x)}<div class="word-zh">${esc(x.zh || '')}</div>
           ${x.ex ? `<button class="word-ex" data-say="${esc(x.ex)}">🔊 ${esc(x.ex)}</button>` : ''}
           <div class="btn-row center"><button class="btn btn-ghost" data-say="${esc(x.w)}" data-slow="1">🐢 慢慢唸</button>
             <button class="btn btn-primary btn-lg" data-act="studyNext">${r.study.length > 1 ? '下一個 ▶' : '開始測驗 ▶'}</button></div>
@@ -169,7 +171,7 @@ export function mountWords(el, { kid }) {
     } else {
       body = `<p class="q-title">拼出這個字</p>
         <button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
-        <div class="word-zh">${esc(x.zh || '（聽發音拼字）')}</div>
+        ${posTag(x)}<div class="word-zh">${esc(x.zh || '（聽發音拼字）')}</div>
         ${fb ? `<div class="spell-answer ${fb.ok ? 'right' : 'wrong'}">${fb.ok ? '' : `<span class="muted small">你寫的：${esc(fb.picked || '（沒有寫）')}</span><br>`}<strong>${esc(x.w)}</strong></div>` : `
         <form id="spell" autocomplete="off"><input class="spell-input" name="a" type="text" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-label="拼字" placeholder="在這裡拼字">
           <div class="btn-row center"><button class="btn btn-ghost" type="button" data-say="${esc(x.w)}" data-slow="1">🐢 慢慢唸</button><button class="btn btn-primary btn-lg" type="submit">送出</button></div></form>`}`;
