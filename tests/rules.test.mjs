@@ -338,3 +338,12 @@ test('每日單字的清單項目：點數必須等於設定', async () => {
   await assertFails(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), { ...it, points: 50 }));
   await assertSucceeds(setDoc(doc(d, F, 'items/kidA_2026-11-08_words'), it));
 });
+
+test('雲端語音快取：已配對裝置可讀單筆，不能列出、不能寫', async () => {
+  await env.withSecurityRulesDisabled((c) => setDoc(doc(c.firestore(), F, 'tts/abc'), { text: 'apple', audio: 'QUJD' }));
+  await assertSucceeds(getDoc(doc(db('a'), F, 'tts/abc')));
+  await assertSucceeds(getDoc(doc(db('a'), F, 'tts/none')));
+  await assertFails(getDoc(doc(db('stranger'), F, 'tts/abc')));
+  await assertFails(getDocs(collection(db('mom'), F, 'tts')));
+  await assertFails(setDoc(doc(db('mom'), F, 'tts/x'), { text: 'x', audio: 'x' }));
+});

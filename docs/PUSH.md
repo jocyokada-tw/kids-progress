@@ -76,6 +76,22 @@ npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-prog
 
 ---
 
+## 雲端語音（每日單字的自然發音）
+
+每日單字的發音預設使用 Google 的雲端語音，比 iPhone 內建的聲音自然。需要做一次設定：
+
+1. 用同一個 Google 帳號打開
+   <https://console.cloud.google.com/apis/library/texttospeech.googleapis.com?project=kids-progress-0927>，
+   確認上方的專案是 `kids-progress-0927`，按「**啟用**」。
+2. 在 Cloud Shell 執行上面「之後通知程式或規則有更新時」的兩行指令，重新部署。
+
+運作方式與費用：
+- 每個單字和例句只會合成一次，存在資料庫裡；之後所有裝置都直接讀取，聽過的字離線也能播。
+- 每月前 100 萬字元免費。一份 500 字的字庫（含例句）大約 2 萬字元，而且只算一次。
+- 另外設了每天最多合成 8 萬字元的上限，避免異常用量。
+- 沒有網路、或這項服務還沒啟用時，App 會自動改用裝置內建的聲音，不會沒有聲音。
+- 每台裝置可以在單字頁的「🔈 聲音」切換「自然語音」或「裝置內建聲音」。
+
 ## 通知內容
 
 | 收到的人 | 什麼時候 |

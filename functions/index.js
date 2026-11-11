@@ -2,6 +2,8 @@
 // 部署方式請看 docs/PUSH.md。這個檔案只放「觸發條件」，共用邏輯在 core.js。
 import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
+import { onCall, HttpsError } from 'firebase-functions/v2/https';
+import { ttsHandler } from './tts.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { db, TZ, notify, kidName, clip, md, runPeriodic } from './core.js';
 
@@ -128,6 +130,12 @@ export const onMessageCreated = onDocumentCreated('families/{fid}/threads/{kidId
   } else {
     await notify(fid, 'mom', 'message', { title: `💬 ${await kidName(fid, kidId)}`, body: clip(m.text, 100), url, tag: `msg-${kidId}` });
   }
+});
+
+// ---------- 雲端語音（每日單字的發音） ----------
+export const tts = onCall({ cors: true, memory: '256MiB', timeoutSeconds: 30 }, async (req) => {
+  if (!req.auth) throw new HttpsError('unauthenticated', '需要登入');
+  return ttsHandler({ uid: req.auth.uid, fid: req.data && req.data.fid, text: req.data && req.data.text });
 });
 
 // ---------- 每 30 分鐘：每日提醒、勿擾時段結束後補發 ----------

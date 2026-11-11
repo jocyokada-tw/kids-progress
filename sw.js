@@ -1,7 +1,7 @@
 // Service Worker：快取 App 外殼（離線也能打開）、顯示推播通知。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v19';
+const VERSION = 'v20';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
@@ -14,12 +14,12 @@ const SHELL = [
   './js/views/shell.js', './js/views/pair.js', './js/views/roles.js', './js/views/home.js',
   './js/views/checklist-panel.js', './js/views/checklist.js', './js/views/schedule.js',
   './js/views/points.js', './js/views/settings.js', './js/views/messages.js', './js/views/goal.js',
-  './js/push.js', './js/net.js', './js/views/push-card.js', './js/views/calendar.js', './js/views/words.js', './js/store/words.js', './js/utils/speak.js', './js/utils/srs.js',
+  './js/push.js', './js/net.js', './js/views/push-card.js', './js/views/calendar.js', './js/views/words.js', './js/store/words.js', './js/utils/speak.js', './js/utils/srs.js', './js/utils/cloud-voice.js',
   './icons/icon-192.png', './icons/apple-touch-icon.png'
 ];
 
 // Firebase SDK 也在安裝時一起存起來，第一次離線打開也能用
-const SDK = ['app', 'auth', 'firestore', 'messaging'].map((n) => `https://www.gstatic.com/firebasejs/12.19.0/firebase-${n}.js`);
+const SDK = ['app', 'auth', 'firestore', 'messaging', 'functions'].map((n) => `https://www.gstatic.com/firebasejs/12.19.0/firebase-${n}.js`);
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then(async (c) => {

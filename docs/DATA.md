@@ -27,6 +27,8 @@
 | `wordLists/{id}/chunks/{n}` | 字庫內容（每 200 字一份） | `words: [{w, pos, zh, ex}]`（`pos` 詞性可省略，只顯示不考） |
 | `wordProgress/{kidId}` | 單字學習進度 | `w: { 單字: { b: 熟練度 0–6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日 } }` |
 | `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect` |
+| `tts/{雜湊}` | 雲端語音快取（伺服器寫入，裝置只能讀單筆） | `text`, `audio`（base64 MP3）, `createdAt` |
+| `meta/ttsUsage` | 雲端語音每日用量（伺服器專用） | `date`, `chars` |
 | `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
 | `threads/{kidId}/messages/{id}` | 留言 | `from: mom\|kid`, `text`（最多 500 字）, `createdAt` |
 
@@ -70,7 +72,7 @@
 - 流程：新字卡（發音、中文、例句）→ 選意思 → 全部拼字。答錯的題目會排到最後再考一次，直到答對。
 - 第一次答錯就寫進 `wordSessions.wrong`，中途離開重來也不會消失；完成時 `wrong` 是空的才算 `perfect`。
 - 完成後自動把清單項目 `items/{kidId}_{日期}_words` 標成待核可（點數 `settings.words.points`）；媽媽核可時若 `perfect`，同一個交易多寫一筆 `ledger/wordbonus_…`（`settings.words.perfectBonus`）。
-- 發音使用裝置內建的語音朗讀，不需要網路。
+- 發音預設使用雲端語音（`functions/tts.js`，Google Cloud Text-to-Speech）：文字的雜湊當作 `tts/{id}`，先讀快取，沒有才呼叫伺服器合成；慢速是把同一段聲音放慢播放。失敗或離線時改用裝置內建的語音朗讀。
 
 **留言已讀**：打開對話時更新自己的 `momReadAt`／`kidReadAt`；我傳的訊息若 `createdAt` 早於對方的讀取時間，就顯示「已讀」。
 
