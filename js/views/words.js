@@ -50,6 +50,8 @@ export function mountWords(el, { kid }) {
       return;
     }
     el.innerHTML = head + (mom ? momHtml(learned) : kidHtml(learned)) + learnedHtml();
+    // 畫面上列出的單字先把發音準備好，按 🔊 時才能立刻播放自然語音
+    prefetch([...el.querySelectorAll('.word-list [data-say]')].map((b) => b.dataset.say));
   }
 
   function kidHtml(learned) {
