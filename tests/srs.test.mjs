@@ -1,7 +1,7 @@
 // 每日單字邏輯測試：cd tests && node --test srs.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, INTERVALS } from '../js/utils/srs.js';
+import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, buildDict, INTERVALS } from '../js/utils/srs.js';
 
 const W = (...ws) => ws.map((w) => ({ w, zh: w + '中', ex: '' }));
 
@@ -137,4 +137,31 @@ test('隨機抽選：一般字庫隨機、同一天結果固定、不同天不�
   assert.equal(new Set(seen).size, 100);
   // 分布：前 5 天抽到的字不會都集中在字庫前段
   assert.ok(seen.slice(0, 25).some((x) => x > 'w050'));
+});
+
+test('自動補齊：補習班單字缺的詞性、例句、中文，從字庫帶過來；補習班自己寫的優先', () => {
+  const flyers = { kind: 'general', words: [
+    { w: 'library', pos: 'n.', zh: '圖書館', ex: 'We read books in the library.' },
+    { w: 'bright', pos: 'adj.', zh: '明亮的、聰明的', ex: 'The sun is bright.' },
+    { w: 'May', pos: 'n.', zh: '五月', ex: 'It is May.' },
+    { w: 'only', pos: 'adv.', zh: '只有', ex: 'Only me.' }
+  ] };
+  const cram = { kind: 'cram', testDate: '2026-11-18', words: [
+    { w: 'library', zh: '圖書館', ex: '' },
+    { w: 'bright', zh: '聰明的', ex: 'She is a bright girl.' },
+    { w: 'may', zh: '可以', ex: '' },
+    { w: 'giraffe', zh: '', ex: '' }
+  ] };
+  const d = buildDict([flyers, cram]);
+  assert.deepEqual(d.get('library'), { w: 'library', zh: '圖書館', ex: 'We read books in the library.', pos: 'n.' });
+  assert.deepEqual(d.get('bright'), { w: 'bright', zh: '聰明的', ex: 'She is a bright girl.', pos: 'adj.' });
+  assert.equal(d.get('may').pos, undefined);          // 大小寫不同是不同的字，不會拿 May 的資料來補
+  assert.equal(d.get('May').zh, '五月');
+  assert.deepEqual(d.get('giraffe'), { w: 'giraffe', zh: '', ex: '' });
+  assert.equal(d.get('only').pos, 'adv.');
+  assert.equal(cram.words[0].pos, undefined);         // 不會改到原本的字庫資料
+  // planToday 用的是同一本字典；學過 library 之後，不會再從 Flyers 當新字抽出來
+  const p = planToday([flyers, cram], {}, '2026-11-13', 5, { random: false });
+  assert.equal(p.dict.get('library').pos, 'n.');
+  assert.equal(p.newWords.filter((k) => k === 'library').length, 1);
 });

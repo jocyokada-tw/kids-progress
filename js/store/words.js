@@ -1,6 +1,6 @@
 import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, serverTimestamp, FieldPath, deleteField } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
-export { INTERVALS, wordKey, sameSpelling, parseWords, wordsToText, planToday, nextProgress } from '../utils/srs.js';
+export { INTERVALS, wordKey, sameSpelling, buildDict, parseWords, wordsToText, planToday, nextProgress } from '../utils/srs.js';
 
 // 每日單字
 // wordLists/{id}            字庫：name, kind: 'cram'（補習班，有考試日）| 'general'（一般字庫）, kids[], testDate, count, active
