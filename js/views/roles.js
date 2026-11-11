@@ -3,7 +3,7 @@ import { esc, modal, showError, toast } from '../ui.js';
 import { momRemembered, verifyPin, pinExists, changePin } from '../store/family.js';
 import { isValidPin } from '../utils/crypto.js';
 
-export function mountRoles(el, { enterProfile }) {
+export function mountRoles(el, { enterProfile, appVersion, checkForUpdate }) {
   const profiles = allowedProfiles();
   el.innerHTML = `
     <div class="center-page roles-page">
@@ -17,7 +17,18 @@ export function mountRoles(el, { enterProfile }) {
         </button>`;
       }).join('')}</div>
       <p class="muted small">此裝置：${esc(state.device.label || '')}</p>
+      <p class="muted small"><span id="appVer"></span> <button class="btn btn-sm btn-ghost" id="checkUpdate" type="button">檢查更新</button></p>
     </div>`;
+
+  appVersion().then((v) => { const s = el.querySelector('#appVer'); if (s && v) s.textContent = `版本 ${v}`; });
+  el.querySelector('#checkUpdate').addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    b.disabled = true; b.textContent = '檢查中…';
+    try {
+      const r = await checkForUpdate();
+      toast({ found: '找到新版本，下方會出現「立即更新」', latest: '已經是最新版本', offline: '目前沒有網路，無法檢查', unsupported: '這個瀏覽器不支援自動更新' }[r], r === 'found' ? 'ok' : 'info', 3500);
+    } catch (err) { showError(err, '檢查更新'); } finally { b.disabled = false; b.textContent = '檢查更新'; }
+  });
 
   el.querySelector('.role-grid').addEventListener('click', async (e) => {
     const b = e.target.closest('[data-p]');

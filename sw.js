@@ -1,7 +1,7 @@
 // Service Worker：快取 App 外殼（離線也能打開）、顯示推播通知。
 // 資料同步由 Firestore 自己處理（含離線快取）。
 // ⚠️ 每次更新程式後，把 VERSION 加 1，裝置才會抓到新版。
-const VERSION = 'v23';
+const VERSION = 'v24';
 const CACHE = `kids-progress-${VERSION}`;
 const SHELL = [
   './', './index.html', './manifest.json', './config.js',
@@ -31,6 +31,7 @@ self.addEventListener('install', (e) => {
 
 self.addEventListener('message', (e) => {
   if (e.data === 'skipWaiting') self.skipWaiting();
+  if (e.data === 'version' && e.ports[0]) e.ports[0].postMessage(VERSION);   // 讓畫面顯示目前的版本
 });
 
 self.addEventListener('activate', (e) => {

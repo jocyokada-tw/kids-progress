@@ -86,7 +86,7 @@ function render() {
   if (!state.profile || route.name === 'roles') {
     if (!state.profile && !autoEntered && allowed.length === 1) return enterProfile(allowed[0]);
     if (route.name !== 'roles') return go('/');
-    return showPage('roles:' + allowed.join() + membersSig(), (el) => mountRoles(el, { enterProfile }));
+    return showPage('roles:' + allowed.join() + membersSig(), (el) => mountRoles(el, { enterProfile, appVersion, checkForUpdate }));
   }
 
   // ---- 已選擇身分：權限保護 ----
@@ -130,6 +130,30 @@ function renderNotConfigured() {
     </div></div>`;
 }
 
+let swReg = null;
+
+/** 目前執行中的版本（例如 v23）；沒有 Service Worker 時回傳 null */
+export function appVersion() {
+  return new Promise((resolve) => {
+    const sw = navigator.serviceWorker && navigator.serviceWorker.controller;
+    if (!sw) return resolve(null);
+    const ch = new MessageChannel();
+    ch.port1.onmessage = (e) => resolve(e.data);
+    setTimeout(() => resolve(null), 1500);
+    sw.postMessage('version', [ch.port2]);
+  });
+}
+
+/** 手動檢查新版。回傳 'found'（已找到，會出現更新按鈕）｜'latest'｜'offline'｜'unsupported' */
+export async function checkForUpdate() {
+  if (!swReg) return 'unsupported';
+  if (!navigator.onLine) return 'offline';
+  if (swReg.waiting) return 'found';
+  await swReg.update();
+  if (swReg.installing || swReg.waiting) return 'found';
+  return 'latest';
+}
+
 /** Service Worker：有新版本時顯示「更新」，按下後才換版並重新載入 */
 function registerSW() {
   let updating = false;
@@ -138,7 +162,9 @@ function registerSW() {
   navigator.serviceWorker.addEventListener('message', (e) => {
     if (e.data && e.data.type === 'navigate') location.href = e.data.url;
   });
-  navigator.serviceWorker.register('./sw.js').then((reg) => {
+  // updateViaCache: 'none' → 檢查新版時不使用瀏覽器快取（GitHub Pages 會讓檔案快取 10 分鐘）
+  navigator.serviceWorker.register('./sw.js', { updateViaCache: 'none' }).then((reg) => {
+    swReg = reg;
     const offer = (w) => showUpdateBar(() => { updating = true; w.postMessage('skipWaiting'); });
     if (reg.waiting && navigator.serviceWorker.controller) offer(reg.waiting);
     reg.addEventListener('updatefound', () => {
@@ -147,10 +173,11 @@ function registerSW() {
         if (w.state === 'installed' && navigator.serviceWorker.controller) offer(w);
       });
     });
-    // App 回到前景時檢查有沒有新版
-    document.addEventListener('visibilitychange', () => {
-      if (document.visibilityState === 'visible') reg.update().catch(() => {});
-    });
+    // 檢查新版的時機：App 回到前景、切換畫面、開著的時候每 5 分鐘
+    const check = () => { if (document.visibilityState === 'visible' && navigator.onLine) reg.update().catch(() => {}); };
+    document.addEventListener('visibilitychange', check);
+    window.addEventListener('hashchange', check);
+    setInterval(check, 5 * 60000);
   }).catch((e) => console.warn('SW', e));
 }
 
