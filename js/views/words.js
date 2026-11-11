@@ -6,7 +6,7 @@ import { speak, canPlaySound, stopSpeaking, englishVoices, currentVoice, setVoic
 import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS
+  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
@@ -27,7 +27,7 @@ export function mountWords(el, { kid }) {
   let loadSeq = 0;
 
   const ready = () => lists && progress && session !== undefined;
-  const dictOf = () => { const m = new Map(); (lists || []).forEach((l) => l.words.forEach((x) => { const k = wordKey(x.w); if (!m.has(k)) m.set(k, x); })); return m; };
+  const dictOf = () => buildDict(lists || []);
 
   function plan() {
     const dict = dictOf();
