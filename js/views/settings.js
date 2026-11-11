@@ -264,6 +264,8 @@ export function mountSettings(el) {
           <label class="field"><span>完成點數</span><input name="points" type="number" inputmode="numeric" min="0" max="99" value="${c.points}"></label>
           <label class="field"><span>一次全對加點</span><input name="perfectBonus" type="number" inputmode="numeric" min="0" max="99" value="${c.perfectBonus}"></label>
         </div>
+        <div class="field"><span>新單字的順序（一般字庫）</span>${chipRadios('order', [{ value: 'random', label: '🎲 隨機抽選' }, { value: 'list', label: '照字庫順序' }], c.order === 'list' ? 'list' : 'random')}
+          <span class="field-hint">補習班單字固定照你輸入的順序，並且優先學。</span></div>
         <button class="btn btn-primary" type="submit">儲存單字設定</button>
       </form>`;
   }
@@ -366,7 +368,7 @@ export function mountSettings(el) {
         toast('規則已儲存', 'ok');
       } else if (f.id === 'wordCfgForm') {
         const n = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
-        await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99) } });
+        await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99), order: d.order === 'list' ? 'list' : 'random' } });
         toast('單字設定已儲存', 'ok');
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
