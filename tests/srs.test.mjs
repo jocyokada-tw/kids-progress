@@ -2,7 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, buildDict, INTERVALS,
-  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters } from '../js/utils/srs.js';
+  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint } from '../js/utils/srs.js';
 
 const W = (...ws) => ws.map((w) => ({ w, zh: w + '中', ex: '' }));
 
@@ -192,7 +192,7 @@ test('例句填空：挖空、字尾留在畫面上、變化形整個挖掉、�
   assert.ok(clozeAccepts('arriving', 'arrive', makeCloze('arrive', 'We are arriving now.')));
 });
 
-test('複習題型：每個字剛好一題、可關閉題型、快考試的字只出打字題、配對一組 4～5 個', () => {
+test('複習題型：每個字剛好一題、可關閉題型、快考試的補習班單字一律聽音拼字、配對一組 4～5 個', () => {
   const words = ['apple', 'banana', 'cherry', 'donut', 'eagle', 'flower', 'guitar', 'hammer', 'island', 'jacket'];
   const dict = new Map(words.map((w) => [w, { w, pos: 'n.', zh: w + '中', ex: `I like the ${w} very much.` }]));
   dict.set('look after', { w: 'look after', pos: 'phr.', zh: '照顧', ex: 'I look after him.' });
@@ -220,16 +220,23 @@ test('複習題型：每個字剛好一題、可關閉題型、快考試的字�
   }
   // 全部關閉 → 只有看中文拼字
   assert.ok(buildReviewQuestions(keys, dict, progress, { enabled: [] }).every((q) => q.type === 'spell'));
-  // 快考試的字只出打字題，也不會被放進配對
-  const typedOnly = new Set(['apple', 'banana', 'cherry']);
+  // 快考試的補習班單字一律聽音拼字，也不會被放進配對（即使媽媽把聽音拼字關掉）
+  const dictation = new Set(['apple', 'banana', 'cherry']);
   for (let i = 0; i < 100; i++) {
-    for (const q of buildReviewQuestions(keys, dict, progress, { typedOnly })) {
-      const ks = q.ks || [q.k];
-      if (ks.some((k) => typedOnly.has(k))) assert.ok(['spell', 'cloze', 'listen'].includes(q.type));
-    }
+    const qs = buildReviewQuestions(keys, dict, progress, { dictation, enabled: i % 2 ? ['match', 'scramble'] : undefined });
+    assert.deepEqual(cover(qs), [...keys].sort());
+    for (const k of dictation) assert.equal(qs.find((q) => q.k === k).type, 'listen');
   }
   // 字太少不出配對
   assert.ok(buildReviewQuestions(['apple', 'banana', 'cherry'], dict, progress).every((q) => q.type !== 'match'));
+});
+
+test('字母提示：只露出第一個字母', () => {
+  const plain = (w) => letterHint(w).replace(/\u00a0/g, '~');
+  assert.equal(plain('apple'), 'a _ _ _ _');
+  assert.equal(plain('ice cream'), 'i _ _ ~~ _ _ _ _ _');
+  assert.equal(plain('x-ray'), 'x - _ _ _');
+  assert.equal(plain('a.m.'), 'a . _ .');
 });
 
 test('字母重組：字母相同、順序一定不同', () => {

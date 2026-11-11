@@ -7,7 +7,7 @@ import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
   startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
-  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters
+  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
@@ -184,10 +184,10 @@ export function mountWords(el, { kid }) {
     const p = plan();
     if (!session) await startSession(kid, today, p.newWords, p.reviewWords);
     const mc = p.newWords.filter((k) => p.dict.get(k).zh && p.dict.size >= 3).map((k) => ({ k, type: 'mc' }));
-    const spellNew = shuffle(p.newWords).map((k) => ({ k, type: 'spell' }));
-    // 快考試的補習班單字只出打字題
-    const typedOnly = new Set(lists.filter((l) => l.kind === 'cram' && l.testDate && l.testDate >= today).flatMap((l) => l.words.map((x) => wordKey(x.w))));
-    const review = buildReviewQuestions(p.reviewWords, p.dict, progress, { enabled: cfg.types, typedOnly });
+    // 快考試的補習班單字一律「聽音拼字」：考試是老師唸、孩子拼
+    const dictation = new Set(lists.filter((l) => l.kind === 'cram' && l.testDate && l.testDate >= today).flatMap((l) => l.words.map((x) => wordKey(x.w))));
+    const spellNew = shuffle(p.newWords).map((k) => ({ k, type: dictation.has(k) ? 'listen' : 'spell' }));
+    const review = buildReviewQuestions(p.reviewWords, p.dict, progress, { enabled: cfg.types, dictation });
     const queue = [...shuffle(mc), ...spellNew, ...review];
     run = {
       dict: p.dict, newWords: p.newWords, reviewWords: p.reviewWords,
@@ -202,7 +202,7 @@ export function mountWords(el, { kid }) {
   }
 
   const TITLES = {
-    mc: '這個字是什麼意思？', spell: '拼出這個字', listen: '聽發音，拼出這個字', cloze: '填空：拼出句子裡缺的字',
+    mc: '這個字是什麼意思？', spell: '拼出這個字', listen: '聽發音，拼出這個字', cloze: '填空：看句子和中文，拼出缺的字',
     clozeMc: '填空：選出句子裡缺的字', scramble: '把字母排回正確的順序', match: '配對：點一個英文，再點它的中文'
   };
   const AUTO_SPEAK = new Set(['mc', 'spell', 'listen', 'scramble']);
@@ -210,10 +210,11 @@ export function mountWords(el, { kid }) {
     <form id="spell" autocomplete="off"><input class="spell-input" name="a" type="text" inputmode="text" autocapitalize="none" autocorrect="off" spellcheck="false" autocomplete="off" aria-label="拼字" placeholder="在這裡拼字">
       <div class="btn-row center">${x ? `<button class="btn btn-ghost" type="button" data-say="${esc(x.w)}" data-slow="1">🐢 慢慢唸</button>` : ''}<button class="btn btn-primary btn-lg" type="submit">送出</button></div></form>`;
   const answerBox = (x, fb) => `<div class="spell-answer ${fb.ok ? 'right' : 'wrong'}">${fb.ok || fb.picked == null ? '' : `<span class="muted small">你的答案：${esc(fb.picked || '（沒有寫）')}</span><br>`}<strong>${esc(x.w)}</strong></div>`;
-  /** 提示：點了才看到中文（看過提示，這個字的複習間隔不會拉長） */
-  const hintBox = (x, shown) => (shown
-    ? `<div class="hint-box">${posTag(x)}<span class="word-zh">${esc(x.zh || '（沒有中文）')}</span></div>`
-    : '<button class="btn btn-ghost" type="button" data-act="hint">💡 看提示</button>');
+  /** 提示：點了才看到（看過提示，這個字的複習間隔不會拉長）。kind: 'zh' 顯示中文；'letters' 顯示第一個字母與字數 */
+  const hintBox = (x, shown, kind = 'zh') => (!shown
+    ? '<button class="btn btn-ghost" type="button" data-act="hint">💡 看提示</button>'
+    : kind === 'letters' ? `<div class="hint-box letters">${esc(letterHint(x.w))}</div>`
+      : `<div class="hint-box">${posTag(x)}<span class="word-zh">${esc(x.zh || '（沒有中文）')}</span></div>`);
   const clozeSentence = (cz, x, fb) => (fb
     ? `<button class="cloze" data-say="${esc(x.ex)}">🔊 ${esc(cz.pre)}<mark>${esc(cz.shown)}</mark>${esc(cz.post)}</button>`
     : `<p class="cloze">${esc(cz.pre)}<span class="blank"></span>${esc(cz.suffix)}${esc(cz.post)}</p>`);
@@ -257,7 +258,8 @@ export function mountWords(el, { kid }) {
         body = `${speakBtn}${fb ? `${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>${answerBox(x, fb)}` : `${hintBox(x, st.hint)}${spellForm(x)}`}`;
         break;
       case 'cloze':
-        body = `${clozeSentence(st.cz, x, fb)}${fb ? `${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>${answerBox(x, fb)}` : `${hintBox(x, st.hint)}${spellForm(null)}`}`;
+        // 句子常常不只一個字能填，所以中文直接顯示；提示是第一個字母和字數
+        body = `${clozeSentence(st.cz, x, fb)}${posTag(x)}<div class="word-zh">${esc(x.zh || '')}</div>${fb ? answerBox(x, fb) : `${x.zh ? hintBox(x, st.hint, 'letters') : ''}${spellForm(null)}`}`;
         break;
       case 'clozeMc':
         body = `${clozeSentence(st.cz, x, fb)}${fb ? `${posTag(x)}<div class="word-zh">${esc(x.zh)}</div>` : hintBox(x, st.hint)}

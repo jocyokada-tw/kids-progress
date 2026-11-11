@@ -267,7 +267,7 @@ export function mountSettings(el) {
         <div class="field"><span>複習的題型（隨機搭配；「看中文拼字」固定會有）</span>${chipChecks('types', [
             { value: 'cloze', label: '例句填空（拼字）' }, { value: 'clozeMc', label: '例句填空（選擇）' }, { value: 'listen', label: '聽音拼字' },
             { value: 'scramble', label: '字母重組' }, { value: 'match', label: '配對' }], c.types || REVIEW_TYPES)}
-          <span class="field-hint">新單字固定考「選意思」和「拼字」。快考試的補習班單字只出要打字的題型。填空和聽音拼字的中文提示要點了才會出現；看了提示，那個字下次會照原本的間隔再複習。</span></div>
+          <span class="field-hint">新單字固定考「選意思」和「拼字」。補習班單字在考試前一律出「聽音拼字」（和老師唸、孩子寫的考法一樣）。提示要點了才會出現；看了提示，那個字下次會照原本的間隔再複習。</span></div>
         <div class="field"><span>新單字的順序（一般字庫）</span>${chipRadios('order', [{ value: 'random', label: '🎲 隨機抽選' }, { value: 'list', label: '照字庫順序' }], c.order === 'list' ? 'list' : 'random')}
           <span class="field-hint">補習班單字固定照你輸入的順序，並且優先學。</span></div>
         <button class="btn btn-primary" type="submit">儲存單字設定</button>

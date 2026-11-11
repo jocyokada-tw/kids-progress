@@ -210,16 +210,15 @@ const WEIGHTS = [
   { max: 3, w: { spell: 2, scramble: 1, clozeMc: 2, cloze: 3, listen: 1 } },
   { max: 99, w: { spell: 1, scramble: 0, clozeMc: 1, cloze: 3, listen: 3 } }
 ];
-const TYPED = ['spell', 'cloze', 'listen'];
 
 /**
  * 幫今天要複習的字各出一題。回傳 [{ type, k }]，配對題是 { type: 'match', ks: [...] }
- * opts.enabled：開放的題型（陣列，預設全部）；opts.typedOnly：只能出打字題的字（例如快考試的補習班單字）
+ * opts.enabled：開放的題型（陣列，預設全部）；opts.dictation：一律出「聽音拼字」的字（快考試的補習班單字：考試是老師唸、孩子拼）
  */
 export function buildReviewQuestions(keys, dict, progress, opts = {}) {
   const rand = opts.rand || Math.random;
   const enabled = new Set(['spell', ...(opts.enabled || REVIEW_TYPES)]);
-  const typedOnly = opts.typedOnly || new Set();
+  const dictation = opts.dictation || new Set();
   const pick = (weights) => {
     const entries = Object.entries(weights).filter(([, v]) => v > 0);
     let r = rand() * entries.reduce((a, [, v]) => a + v, 0);
@@ -231,7 +230,7 @@ export function buildReviewQuestions(keys, dict, progress, opts = {}) {
   // 配對：挑 4～5 個有中文、中文不重複的字一起考
   if (enabled.has('match')) {
     const seenZh = new Set();
-    const eligible = shuffled(rest.filter((k) => !typedOnly.has(k)), rand).filter((k) => {
+    const eligible = shuffled(rest.filter((k) => !dictation.has(k)), rand).filter((k) => {
       const zh = dict.get(k) && dict.get(k).zh;
       if (!zh || seenZh.has(zh)) return false;
       seenZh.add(zh);
@@ -246,18 +245,29 @@ export function buildReviewQuestions(keys, dict, progress, opts = {}) {
     }
   }
   for (const k of rest) {
+    if (dictation.has(k)) { out.push({ type: 'listen', k }); continue; }
     const x = dict.get(k);
     const b = (progress[k] && progress[k].b) || 0;
     const cz = makeCloze(x.w, x.ex);
     const avail = { spell: true, listen: true, cloze: !!cz, clozeMc: !!cz && dict.size >= 4, scramble: !!x.zh && /^[A-Za-z]{3,12}$/.test(x.w) };
     const w = {};
     for (const [t, v] of Object.entries(WEIGHTS.find((r) => b <= r.max).w)) {
-      if (enabled.has(t) && avail[t] && (!typedOnly.has(k) || TYPED.includes(t))) w[t] = v;
+      if (enabled.has(t) && avail[t]) w[t] = v;
     }
     if (!Object.values(w).some((v) => v > 0)) w.spell = 1;
     out.push({ type: pick(w), k });
   }
   return shuffled(out, rand);
+}
+
+/** 提示用：只露出第一個字母，其餘用底線表示（apple → a _ _ _ _；片語保留空白） */
+export function letterHint(word) {
+  let first = true;
+  return [...String(word)].map((ch) => {
+    if (!/[A-Za-z]/.test(ch)) return ch === ' ' ? '\u00a0\u00a0' : ch;
+    if (first) { first = false; return ch; }
+    return '_';
+  }).join(' ');
 }
 
 /** 字母重組用：把字母打亂（保證和原本的順序不同） */
