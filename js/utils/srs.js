@@ -56,7 +56,31 @@ export const wordsToText = (words) => words.map((x) => [x.w, ...(x.pos ? [x.pos]
  * lists: [{ id, kind, testDate, words: [{w, zh, ex}] }]（只含這個小孩的字庫）
  * 回傳 { newWords: [key], reviewWords: [key], dict: Map(key → {w, zh, ex}) }
  */
-export function planToday(lists, progress, today, perDay) {
+/** 依種子產生固定的亂數（同一個小孩同一天抽到的字相同，不會每次打開都變） */
+function seededRandom(seed) {
+  let h = 2166136261;
+  for (const c of String(seed)) { h ^= c.charCodeAt(0); h = Math.imul(h, 16777619); }
+  return () => {
+    h += 0x6D2B79F5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function shuffled(arr, rand) {
+  const r = [...arr];
+  for (let i = r.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [r[i], r[j]] = [r[j], r[i]]; }
+  return r;
+}
+
+/**
+ * opts.random：一般字庫的新單字是否隨機抽選（預設是；補習班單字固定照順序）
+ * opts.seed：亂數種子（通常是「小孩＋日期」）
+ */
+export function planToday(lists, progress, today, perDay, opts = {}) {
+  const random = opts.random !== false;
+  const rand = seededRandom(opts.seed || today);
   const dict = new Map();
   const ordered = [
     ...lists.filter((l) => l.kind === 'cram').sort((a, b) => (a.testDate || '9999').localeCompare(b.testDate || '9999')),
@@ -68,9 +92,9 @@ export function planToday(lists, progress, today, perDay) {
   const newWords = [];
   for (const l of ordered) {
     if (l.kind === 'cram' && l.testDate && l.testDate < today) continue;
-    for (const x of l.words) {
-      const k = wordKey(x.w);
-      if (newWords.length < perDay && !progress[k] && !newWords.includes(k)) newWords.push(k);
+    const fresh = l.words.map((x) => wordKey(x.w)).filter((k) => !progress[k]);
+    for (const k of (random && l.kind !== 'cram' ? shuffled(fresh, rand) : fresh)) {
+      if (newWords.length < perDay && !newWords.includes(k)) newWords.push(k);
     }
   }
   // 複習：到期的字；補習班考前一天與當天，整份都複習

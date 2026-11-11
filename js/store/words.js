@@ -7,7 +7,7 @@ export { INTERVALS, wordKey, sameSpelling, parseWords, wordsToText, planToday, n
 // wordLists/{id}/chunks/{n} 單字內容，每 200 個一份：{ words: [{ w, zh, ex }] }
 // wordProgress/{kidId}      學習進度：{ w: { [單字]: { b: 熟練度 0-6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日期 } } }
 // wordSessions/{kidId}_{日期} 當天的練習：newWords, reviewWords, wrong[], finished, perfect
-export const WORD_DEFAULTS = { perDay: 5, points: 2, perfectBonus: 2 };
+export const WORD_DEFAULTS = { perDay: 5, points: 2, perfectBonus: 2, order: 'random' };
 const CHUNK = 200;
 
 

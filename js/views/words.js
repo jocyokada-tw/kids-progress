@@ -34,7 +34,7 @@ export function mountWords(el, { kid }) {
       // 今天已經開始過：沿用同一批單字
       return { newWords: session.newWords.filter((k) => dict.has(k)), reviewWords: session.reviewWords.filter((k) => dict.has(k)), dict };
     }
-    return planToday(lists, progress, today, cfg.perDay);
+    return planToday(lists, progress, today, cfg.perDay, { random: cfg.order !== 'list', seed: `${kid}|${today}` });
   }
 
   // ---------- 畫面 ----------

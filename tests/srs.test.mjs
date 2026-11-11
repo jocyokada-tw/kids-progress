@@ -49,20 +49,20 @@ test('新單字：補習班優先，再用一般字庫補滿到每天的數量',
     { kind: 'general', words: W('g1', 'g2', 'g3', 'g4', 'g5', 'g6') },
     { kind: 'cram', testDate: '2026-11-18', words: W('c1', 'c2', 'c3') }
   ];
-  const p = planToday(lists, {}, '2026-11-13', 5);
+  const p = planToday(lists, {}, '2026-11-13', 5, { random: false });
   assert.deepEqual(p.newWords, ['c1', 'c2', 'c3', 'g1', 'g2']);
   assert.deepEqual(p.reviewWords, []);
 });
 
 test('考試日已過的補習班單字不再當新字', () => {
   const lists = [{ kind: 'cram', testDate: '2026-11-11', words: W('old') }, { kind: 'general', words: W('g1') }];
-  assert.deepEqual(planToday(lists, {}, '2026-11-13', 5).newWords, ['g1']);
+  assert.deepEqual(planToday(lists, {}, '2026-11-13', 5, { random: false }).newWords, ['g1']);
 });
 
 test('複習：只排到期的字，最久沒複習的排前面', () => {
   const lists = [{ kind: 'general', words: W('a', 'b', 'c', 'd') }];
   const progress = { a: { b: 1, d: '2026-11-13' }, b: { b: 2, d: '2026-11-10' }, c: { b: 3, d: '2026-11-20' } };
-  const p = planToday(lists, progress, '2026-11-13', 5);
+  const p = planToday(lists, progress, '2026-11-13', 5, { random: false });
   assert.deepEqual(p.reviewWords, ['b', 'a']);
   assert.deepEqual(p.newWords, ['d']);
 });
@@ -110,4 +110,31 @@ test('拼字比對：不分大小寫、忽略「...」與多餘空白、彎引�
   assert.ok(!sameSpelling('am', 'a.m.'));
   assert.ok(!sameSpelling('xray', 'x-ray'));
   assert.ok(!sameSpelling('aple', 'apple'));
+});
+
+test('隨機抽選：一般字庫隨機、同一天結果固定、不同天不同、不重複抽已學過的；補習班仍照順序優先', () => {
+  const g = Array.from({ length: 100 }, (_, i) => 'w' + String(i).padStart(3, '0'));
+  const lists = [{ kind: 'general', words: W(...g) }, { kind: 'cram', testDate: '2026-11-18', words: W('c1', 'c2') }];
+  const a = planToday(lists, {}, '2026-11-13', 5, { seed: 'kidA|2026-11-13' }).newWords;
+  const a2 = planToday(lists, {}, '2026-11-13', 5, { seed: 'kidA|2026-11-13' }).newWords;
+  const b = planToday(lists, {}, '2026-11-14', 5, { seed: 'kidA|2026-11-14' }).newWords;
+  const k = planToday(lists, {}, '2026-11-13', 5, { seed: 'kidB|2026-11-13' }).newWords;
+  assert.deepEqual(a.slice(0, 2), ['c1', 'c2']);
+  assert.deepEqual(a, a2);
+  assert.notDeepEqual(a, b);
+  assert.notDeepEqual(a, k);
+  assert.notDeepEqual(a.slice(2), ['w000', 'w001', 'w002']);
+  assert.equal(new Set(a).size, 5);
+  // 連續 20 天：每天 5 個，不重複，最後剛好學完 100 個
+  const only = [{ kind: 'general', words: W(...g) }];
+  const progress = {}; const seen = [];
+  for (let d = 0; d < 20; d++) {
+    const day = `2026-12-${String(d + 1).padStart(2, '0')}`;
+    const nw = planToday(only, progress, day, 5, { seed: 'kidA|' + day }).newWords;
+    assert.equal(nw.length, 5);
+    nw.forEach((x) => { assert.ok(!progress[x]); progress[x] = { b: 0, d: '2099-01-01' }; seen.push(x); });
+  }
+  assert.equal(new Set(seen).size, 100);
+  // 分布：前 5 天抽到的字不會都集中在字庫前段
+  assert.ok(seen.slice(0, 25).some((x) => x > 'w050'));
 });
