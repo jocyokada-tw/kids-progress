@@ -1,11 +1,11 @@
 import { state, isMom, memberName } from '../state.js';
-import { esc, toast, showError, modal } from '../ui.js';
+import { esc, toast, showError, modal, confirmDialog } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, addDays, labelMD } from '../utils/date.js';
 import { speak, canSpeak, englishVoices, currentVoice, setVoice, voiceQuality } from '../utils/speak.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling
+  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
 
@@ -48,7 +48,7 @@ export function mountWords(el, { kid }) {
       el.innerHTML = `${head}<section class="card"><p class="empty">${mom ? '還沒有給這個孩子的字庫。到「設定 → 每日單字」新增字庫並貼上單字。' : '媽媽還沒有準備單字喔 📚'}</p></section>`;
       return;
     }
-    el.innerHTML = head + (mom ? momHtml(learned) : kidHtml(learned));
+    el.innerHTML = head + (mom ? momHtml(learned) : kidHtml(learned)) + learnedHtml();
   }
 
   function kidHtml(learned) {
@@ -82,6 +82,24 @@ export function mountWords(el, { kid }) {
         ${wrong.includes(wordKey(x.w)) ? '<span class="tag tag-bad">再加油</span>' : ''}</li>`).join('')}</ul>`;
   }
 
+  // 學過的單字：隨時可以回來聽發音、看下次什麼時候複習
+  let showAllLearned = false;
+  function learnedHtml() {
+    const dict = dictOf();
+    const all = Object.entries(progress).filter(([k]) => dict.has(k))
+      .sort((a, b) => (b[1].t || '').localeCompare(a[1].t || '') || a[0].localeCompare(b[0]));
+    if (!all.length) return '';
+    const list = showAllLearned ? all : all.slice(0, 20);
+    const when = (p) => (!p.d ? '' : p.d <= today ? '今天複習' : `${labelMD(p.d)} 複習`);
+    return `<section class="card"><h2>📚 學過的單字 <span class="muted small">${all.length} 個</span></h2>
+      <ul class="word-list">${list.map(([k, p]) => { const x = dict.get(k); return `
+        <li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
+          <span class="grow"><strong>${esc(x.w)}</strong> ${posTag(x)}<span class="muted">${esc(x.zh)}</span>${x.ex ? `<br><span class="muted small">${esc(x.ex)}</span>` : ''}</span>
+          <span class="tag ${p.d && p.d <= today ? 'tag-wait' : ''}" title="熟練度 ${p.b || 0}／${INTERVALS.length - 1}">${when(p)}</span></li>`; }).join('')}</ul>
+      ${all.length > 20 ? `<button class="btn btn-ghost btn-block" data-act="toggleLearned">${showAllLearned ? '收起' : `顯示全部 ${all.length} 個`}</button>` : ''}
+    </section>`;
+  }
+
   function streakDays() {
     const done = new Set(sessions.filter((s) => s.finished).map((s) => s.date));
     let d = done.has(today) ? today : addDays(today, -1);
@@ -102,7 +120,7 @@ export function mountWords(el, { kid }) {
           <div class="stat"><span class="stat-num">${due}</span><span class="muted small">今天到期複習</span></div>
           <div class="stat"><span class="stat-num">${streakDays()}</span><span class="muted small">連續天數</span></div>
         </div>
-        <p><strong>今天：</strong>${todayState}</p>
+        <p><strong>今天：</strong>${todayState}${session ? ' <button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button>' : ''}</p>
         ${session && session.wrong.length ? wordRows(session.wrong.map((k) => dict.get(k)).filter(Boolean)) : ''}
       </section>
       <section class="card"><h2>字庫進度</h2>
@@ -138,7 +156,8 @@ export function mountWords(el, { kid }) {
             <span class="grow">${esc(v.name.replace(/\s*\(.*\)$/, ''))} <span class="muted small">${esc(v.lang)}</span></span>
             <span class="tag ${voiceQuality(v) > 1 ? 'tag-ok' : ''}">${Q_LABEL[voiceQuality(v)]}</span>
             <button type="button" class="icon-btn speak" data-try="${esc(v.voiceURI)}" aria-label="試聽">🔊</button></label>`).join('')}</div>` : '<p class="empty">找不到英文語音，請稍後再試一次。</p>'}
-        <p class="muted small">按 🔊 試聽。這個設定只影響這台裝置。</p>`,
+        <p class="muted small">按 🔊 試聽。這個設定只影響這台裝置。</p>
+        <p class="muted small">剛下載的聲音沒有出現？請把 App 完全關掉再打開。有些「高品質」聲音 iPhone 不開放給這類 App 使用，可以改下載同一個聲音的「優化」版本試試。</p>`,
       buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '使用這個聲音', kind: 'primary' }],
       onOpen: (w) => w.addEventListener('click', (e) => {
         const t = e.target.closest('[data-try]');
@@ -256,6 +275,14 @@ export function mountWords(el, { kid }) {
     switch (b.dataset.act) {
       case 'manage': go('/settings'); break;
       case 'voice': chooseVoice(); break;
+      case 'toggleLearned': showAllLearned = !showAllLearned; draw(); break;
+      case 'reset':
+        confirmDialog(session.finished
+          ? '重設今天的練習？\n今天新學的字會改回「還沒學過」，清單上的每日單字也會改回未完成，孩子可以重新做一次。\n（今天複習過的舊字，複習結果不會復原。）'
+          : '重設今天的練習？\n孩子會重新開始，今天答錯的紀錄也會清掉。', { okLabel: '重設', danger: true })
+          .then((ok) => ok && resetSession(kid, today, session).then(() => toast('已重設，孩子可以重新開始', 'ok')))
+          .catch((err) => showError(err, '重設'));
+        break;
       case 'start': b.disabled = true; start().catch((err) => { showError(err); b.disabled = false; }); break;
       case 'studyNext': run.study.shift(); draw(); break;
       case 'pick': answer(b.dataset.v === run.dict.get(run.queue[0].k).zh, b.dataset.v); break;

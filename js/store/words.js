@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, serverTimestamp } from '../firebase.js';
+import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, serverTimestamp, FieldPath, deleteField } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
 export { INTERVALS, wordKey, sameSpelling, parseWords, wordsToText, planToday, nextProgress } from '../utils/srs.js';
 
@@ -36,6 +36,25 @@ export async function saveListWords(listId, words) {
   for (let i = 0; i < n; i++) b.set(doc(chunkCol(listId), String(i)), { words: words.slice(i * CHUNK, (i + 1) * CHUNK) });
   old.docs.filter((d) => Number(d.id) >= n).forEach((d) => b.delete(d.ref));
   b.update(fdoc('wordLists', listId), { count: words.length });
+  await b.commit();
+}
+
+// ---------- 媽媽重設今天的練習 ----------
+/**
+ * 刪掉當天的練習紀錄，讓孩子重新開始（例如媽媽先拿孩子的帳號試用過）。
+ * 已完成的話：今天新學的字改回「還沒學過」，清單項目改回未完成。已核可入帳的不能重設。
+ */
+export async function resetSession(kidId, date, session) {
+  const itemRef = fdoc('items', `${kidId}_${date}_words`);
+  const item = await getDoc(itemRef);
+  if (item.exists() && item.data().review === 'approved') throw new Error('今天的單字已經核可入帳，不能重設');
+  const b = writeBatch(db);
+  b.delete(fdoc('wordSessions', sessionId(kidId, date)));
+  if (session && session.finished && session.newWords.length) {
+    const args = session.newWords.flatMap((k) => [new FieldPath('w', k), deleteField()]);
+    b.update(fdoc('wordProgress', kidId), ...args);
+  }
+  if (item.exists()) b.update(itemRef, { done: false, doneAt: null, review: 'none', returnNote: '' });
   await b.commit();
 }
 
