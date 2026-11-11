@@ -25,6 +25,25 @@ as ... as, 和…一樣
   assert.deepEqual(parseWords(wordsToText(words)).words, words);
 });
 
+test('詞性：第二欄是 n.、v.、adj. 等縮寫時當成詞性，可省略、可多個', () => {
+  const { words, skipped } = parseWords(`apple, n., 蘋果, I eat an apple.
+brush\tN/V\t刷子、刷
+quickly, adv, 很快地
+a.m., abbr., 上午
+banana, 香蕉, No pos here.
+at the moment, phr., 此刻
+v, 字母V`);
+  assert.deepEqual(skipped, []);
+  assert.deepEqual(words[0], { w: 'apple', pos: 'n.', zh: '蘋果', ex: 'I eat an apple.' });
+  assert.deepEqual(words[1], { w: 'brush', pos: 'n./v.', zh: '刷子、刷', ex: '' });
+  assert.equal(words[2].pos, 'adv.');
+  assert.equal(words[3].pos, 'abbr.');
+  assert.deepEqual(words[4], { w: 'banana', zh: '香蕉', ex: 'No pos here.' });
+  assert.equal(words[5].pos, 'phr.');
+  assert.deepEqual(words[6], { w: 'v', zh: '字母V', ex: '' });
+  assert.deepEqual(parseWords(wordsToText(words)).words, words);
+});
+
 test('新單字：補習班優先，再用一般字庫補滿到每天的數量', () => {
   const lists = [
     { kind: 'general', words: W('g1', 'g2', 'g3', 'g4', 'g5', 'g6') },

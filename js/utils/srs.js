@@ -13,9 +13,15 @@ const normSpell = (s) => String(s || '').toLowerCase().replace(/[’`]/g, "'").r
 export const sameSpelling = (a, b) => normSpell(a) === normSpell(b);
 
 /**
- * 把貼上的文字轉成單字。每行一個：「英文, 中文, 例句」（逗號、Tab、｜ 都可以；例句可省略），
+ * 把貼上的文字轉成單字。每行一個：「英文, 詞性, 中文, 例句」（逗號、Tab、｜ 都可以；詞性與例句可省略），
  * 也接受「apple 蘋果」這種用空白分開的寫法。回傳 { words, skipped }
  */
+// 詞性縮寫（可用 / 或 、 連接多個，例如 n./v.）
+const POS_ONE = '(?:n|v|adj|adv|prep|conj|pron|det|art|aux|modal|num|int|interj|excl|phr|abbr)\\.?';
+const POS_RE = new RegExp(`^${POS_ONE}(?:\\s*[/、&]\\s*${POS_ONE})*$`, 'i');
+/** 統一寫法：小寫、每個縮寫後面加句點、用 / 連接 */
+const normPos = (s) => s.toLowerCase().split(/\s*[/、&]\s*/).map((p) => p.replace(/\.$/, '') + '.').join('/');
+
 export function parseWords(text) {
   const seen = new Set();
   const words = [];
@@ -29,17 +35,21 @@ export function parseWords(text) {
       parts = m ? [m[1], m[2]] : [line];
     }
     const w = (parts[0] || '').trim().replace(/’/g, "'");
-    const zh = (parts[1] || '').trim();
-    const ex = parts.slice(2).join(', ').trim();
+    // 第二欄如果是詞性（n.、v.、adj.…），後面才是中文與例句
+    const hasPos = parts.length >= 2 && POS_RE.test((parts[1] || '').trim());
+    const pos = hasPos ? normPos(parts[1].trim()) : '';
+    const rest = parts.slice(hasPos ? 2 : 1);
+    const zh = (rest[0] || '').trim();
+    const ex = rest.slice(1).join(', ').trim();
     const key = wordKey(w);
     if (!/^[A-Za-z]/.test(w) || w.length > 60) { skipped.push(line); continue; }
     if (seen.has(key)) continue;
     seen.add(key);
-    words.push({ w, zh, ex });
+    words.push(pos ? { w, pos, zh, ex } : { w, zh, ex });
   }
   return { words, skipped };
 }
-export const wordsToText = (words) => words.map((x) => [x.w, x.zh, x.ex].filter((v, i) => i < 2 || v).join(', ')).join('\n');
+export const wordsToText = (words) => words.map((x) => [x.w, ...(x.pos ? [x.pos] : []), x.zh, ...(x.ex ? [x.ex] : [])].join(', ')).join('\n');
 
 // ---------- 排出今天要學、要複習的字 ----------
 /**

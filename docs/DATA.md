@@ -24,7 +24,7 @@
 | `pushQueue/{id}` | 勿擾時段暫存的通知（伺服器專用） | `who`, `title`, `body`, `url`, `tag`, `createdAt` |
 | `meta/pushState` | 每日提醒是否已發（伺服器專用） | `lastDaily` |
 | `wordLists/{id}` | 單字字庫 | `name`, `kind: cram\|general`（補習班／一般字庫）, `kids[]`, `testDate`（補習班考試日）, `count`, `active` |
-| `wordLists/{id}/chunks/{n}` | 字庫內容（每 200 字一份） | `words: [{w, zh, ex}]` |
+| `wordLists/{id}/chunks/{n}` | 字庫內容（每 200 字一份） | `words: [{w, pos, zh, ex}]`（`pos` 詞性可省略，只顯示不考） |
 | `wordProgress/{kidId}` | 單字學習進度 | `w: { 單字: { b: 熟練度 0–6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日 } }` |
 | `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect` |
 | `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
