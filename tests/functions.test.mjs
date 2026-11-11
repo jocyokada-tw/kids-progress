@@ -6,6 +6,7 @@ import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fn from '../functions/index.js';
 import { db, runPeriodic, tokensFor, taipeiNow, inQuiet } from '../functions/core.js';
+import { ttsHandler, ttsId, DAILY_CAP } from '../functions/tts.js';
 
 const F = 'families/home';
 const snap = (data) => ({ data: () => data });
@@ -167,4 +168,43 @@ test('每日提醒可以關閉', async () => {
   await db.doc(`${F}/routines/r1`).set({ kidId: 'kidA', title: '刷牙', points: 1, weekdays: [1], active: true });
   await runPeriodic(new Date('2026-11-09T12:30:00Z'));
   assert.equal((await logs()).length, 0);
+});
+
+// ---------- 雲端語音 ----------
+test('雲端語音：只給已配對裝置、只接受英文，合成一次後走快取', async () => {
+  await db.doc(`${F}/devices/a`).set({ isMom: false, kids: ['kidA'] });
+  let calls = 0;
+  const synth = async (t) => { calls++; return Buffer.from('mp3:' + t).toString('base64'); };
+  await assert.rejects(ttsHandler({ uid: null, fid: 'home', text: 'apple' }, synth), /需要登入/);
+  await assert.rejects(ttsHandler({ uid: 'stranger', fid: 'home', text: 'apple' }, synth), /尚未配對/);
+  await assert.rejects(ttsHandler({ uid: 'a', fid: '../x', text: 'apple' }, synth), /fid/);
+  for (const bad of ['', '   ', '蘋果', '<script>', '12345', 'a'.repeat(161)]) {
+    await assert.rejects(ttsHandler({ uid: 'a', fid: 'home', text: bad }, synth), /文字格式不符/);
+  }
+  assert.equal(calls, 0);
+  const r1 = await ttsHandler({ uid: 'a', fid: 'home', text: '  ice   cream ' }, synth);
+  assert.equal(r1.cached, false);
+  assert.equal(Buffer.from(r1.audio, 'base64').toString(), 'mp3:ice cream');
+  const r2 = await ttsHandler({ uid: 'a', fid: 'home', text: 'ice cream' }, synth);
+  assert.equal(r2.cached, true);
+  assert.equal(r2.audio, r1.audio);
+  assert.equal(calls, 1);
+  for (const ok of ["I can't see anything.", 'a.m.', 'as ... as', 'x-ray', 'What a lovely day!', 'Taipei 101 is a skyscraper.']) {
+    await ttsHandler({ uid: 'a', fid: 'home', text: ok }, synth);
+  }
+  assert.equal(calls, 7);
+  assert.ok((await db.doc(`${F}/tts/${ttsId('ice cream')}`).get()).exists);
+  assert.equal(ttsId('ice cream').length, 40);
+});
+
+test('雲端語音：超過每日上限就拒絕；隔天重新計算', async () => {
+  await db.doc(`${F}/devices/a`).set({ isMom: false, kids: ['kidA'] });
+  const today = taipeiNow().date;
+  await db.doc(`${F}/meta/ttsUsage`).set({ date: today, chars: DAILY_CAP - 3 });
+  const synth = async () => 'QUJD';
+  await assert.rejects(ttsHandler({ uid: 'a', fid: 'home', text: 'apple' }, synth), /上限/);
+  await ttsHandler({ uid: 'a', fid: 'home', text: 'cat' }, synth);
+  await db.doc(`${F}/meta/ttsUsage`).set({ date: '2000-01-01', chars: DAILY_CAP });
+  await ttsHandler({ uid: 'a', fid: 'home', text: 'apple' }, synth);
+  assert.equal((await db.doc(`${F}/meta/ttsUsage`).get()).data().chars, 5);
 });

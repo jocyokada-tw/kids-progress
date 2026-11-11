@@ -2,7 +2,8 @@ import { state, isMom, memberName } from '../state.js';
 import { esc, toast, showError, modal, confirmDialog } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, addDays, labelMD } from '../utils/date.js';
-import { speak, canSpeak, englishVoices, currentVoice, setVoice, voiceQuality } from '../utils/speak.js';
+import { speak, canPlaySound, stopSpeaking, englishVoices, currentVoice, setVoice, voiceQuality, voiceMode, setVoiceMode, CLOUD } from '../utils/speak.js';
+import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
   startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS
@@ -143,28 +144,36 @@ export function mountWords(el, { kid }) {
   // ---------- 選擇發音的聲音（每台裝置各自設定） ----------
   const Q_LABEL = { 3: '高品質', 2: '優化', 1: '一般' };
   async function chooseVoice() {
-    if (!canSpeak()) return toast('這台裝置不支援發音');
     const voices = englishVoices();
     const cur = currentVoice();
-    const best = voices.length ? Math.max(...voices.map(voiceQuality)) : 0;
+    const mode = voiceMode();
     const r = await modal({
       title: '🔈 發音的聲音',
       html: `
-        ${best < 2 ? `<div class="notice small"><strong>想要更自然的聲音？</strong><br>這台裝置目前只有「一般」語音，聽起來比較像機器人。到 iPhone／iPad 的<br><strong>設定 → 輔助使用 → 語音內容 → 聲音 → 英文 → 英文（美國）</strong><br>選一個聲音（例如 Ava 或 Samantha），下載「優化」或「高品質」版本，再回到這裡選它。</div>` : ''}
-        ${voices.length ? `<div class="voice-list">${voices.map((v) => `
-          <label class="voice-row"><input type="radio" name="voice" value="${esc(v.voiceURI)}" ${cur && v.voiceURI === cur.voiceURI ? 'checked' : ''}>
-            <span class="grow">${esc(v.name.replace(/\s*\(.*\)$/, ''))} <span class="muted small">${esc(v.lang)}</span></span>
+        <div class="voice-list">
+          <label class="voice-row"><input type="radio" name="voice" value="${CLOUD}" ${mode === CLOUD ? 'checked' : ''}>
+            <span class="grow"><strong>☁️ 自然語音</strong><br><span class="muted small">最像真人。第一次聽某個字需要網路，聽過的字離線也能播。</span></span>
+            <span class="tag tag-ok">建議</span>
+            <button type="button" class="icon-btn speak" data-try="${CLOUD}" aria-label="試聽">🔊</button></label>
+          ${voices.map((v) => `
+          <label class="voice-row"><input type="radio" name="voice" value="${esc(v.voiceURI)}" ${mode !== CLOUD && cur && v.voiceURI === cur.voiceURI ? 'checked' : ''}>
+            <span class="grow">📱 ${esc(v.name.replace(/\s*\(.*\)$/, ''))} <span class="muted small">${esc(v.lang)}</span></span>
             <span class="tag ${voiceQuality(v) > 1 ? 'tag-ok' : ''}">${Q_LABEL[voiceQuality(v)]}</span>
-            <button type="button" class="icon-btn speak" data-try="${esc(v.voiceURI)}" aria-label="試聽">🔊</button></label>`).join('')}</div>` : '<p class="empty">找不到英文語音，請稍後再試一次。</p>'}
-        <p class="muted small">按 🔊 試聽。這個設定只影響這台裝置。</p>
-        <p class="muted small">剛下載的聲音沒有出現？請把 App 完全關掉再打開。有些「高品質」聲音 iPhone 不開放給這類 App 使用，可以改下載同一個聲音的「優化」版本試試。</p>`,
+            <button type="button" class="icon-btn speak" data-try="${esc(v.voiceURI)}" aria-label="試聽">🔊</button></label>`).join('')}
+        </div>
+        <p class="muted small">按 🔊 試聽。這個設定只影響這台裝置。📱 是這台裝置內建的聲音，不需要網路，但比較像機器人。</p>
+        <p class="muted small">如果「自然語音」試聽起來和內建聲音一樣，代表雲端語音還沒設定好或目前沒有網路，App 會自動改用內建聲音。</p>`,
       buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '使用這個聲音', kind: 'primary' }],
       onOpen: (w) => w.addEventListener('click', (e) => {
         const t = e.target.closest('[data-try]');
-        if (t) { e.preventDefault(); speak('Hello! This is how I sound. Apple, library, wonderful.', false, t.dataset.try); }
+        if (t) { e.preventDefault(); unlockAudio(); speak('Hello! This is how I sound.', false, t.dataset.try); }
       })
     });
-    if (r.id === 'ok' && r.data.voice) { setVoice(r.data.voice); speak('Okay!'); toast('已更換聲音', 'ok'); }
+    if (r.id !== 'ok' || !r.data.voice) return;
+    if (r.data.voice === CLOUD) setVoiceMode(CLOUD);
+    else { setVoiceMode('device'); setVoice(r.data.voice); }
+    speak('Okay!');
+    toast('已更換聲音', 'ok');
   }
 
   // ---------- 練習流程 ----------
@@ -178,6 +187,9 @@ export function mountWords(el, { kid }) {
       study: [...p.newWords], queue: [...shuffle(mc), ...spell], total: mc.length + spell.length, done: 0,
       wrong: new Set((session && session.wrong) || []), feedback: null, options: null
     };
+    // 先把今天會用到的發音準備好（單字＋新字的例句），播放時就不用等
+    const all = [...p.newWords, ...p.reviewWords].map((k) => p.dict.get(k));
+    prefetch([...all.map((x) => x.w), ...p.newWords.map((k) => p.dict.get(k).ex)]);
     draw();
   }
 
@@ -269,7 +281,8 @@ export function mountWords(el, { kid }) {
   });
   el.addEventListener('click', (e) => {
     const s = e.target.closest('[data-say]');
-    if (s) { if (!canSpeak()) toast('這台裝置不支援發音'); speak(s.dataset.say, !!s.dataset.slow); return; }
+    unlockAudio();   // iPhone：聲音要由點按啟動，之後換卡片才能自動發音
+    if (s) { if (!canPlaySound()) toast('這台裝置不支援發音'); speak(s.dataset.say, !!s.dataset.slow); return; }
     const b = e.target.closest('[data-act]');
     if (!b) return;
     switch (b.dataset.act) {
@@ -301,5 +314,5 @@ export function mountWords(el, { kid }) {
     watchSessions(kid, (s) => { sessions = s; if (!run) draw(); }, (e) => showError(e, '讀取紀錄'))
   ];
   draw();
-  return () => { unsubs.forEach((u) => u()); if (canSpeak()) speechSynthesis.cancel(); };
+  return () => { unsubs.forEach((u) => u()); stopSpeaking(); };
 }

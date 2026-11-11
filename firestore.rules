@@ -219,6 +219,12 @@ service cloud.firestore {
         allow delete: if isMom();
       }
 
+      // ---------- 雲端語音快取：已配對裝置可讀單筆，只有伺服器能寫 ----------
+      match /tts/{id} {
+        allow get: if paired();
+        allow list, write: if false;
+      }
+
       // ---------- 推播通知權杖：每台已配對裝置只能寫自己的；只有伺服器（Cloud Functions）會讀 ----------
       // pushQueue（勿擾時段暫存）、meta/pushState 由伺服器寫入，用戶端不需要存取
       match /pushTokens/{uid} {
