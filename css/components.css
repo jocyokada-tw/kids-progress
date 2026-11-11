@@ -475,3 +475,25 @@
 .voice-row { display: flex; align-items: center; gap: 8px; padding: 6px 10px; min-height: 52px; border-bottom: 1px solid var(--line); }
 .voice-row:last-child { border-bottom: 0; }
 .voice-row input { width: 22px; height: 22px; flex: none; accent-color: var(--kid); }
+
+/* ===== 單字測驗：填空、字母重組、配對 ===== */
+.cloze { font-size: 1.35rem; font-weight: 700; line-height: 1.7; margin: 4px 0; text-align: center; border: 0; background: transparent; }
+button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min-height: 44px; }
+.cloze .blank { display: inline-block; min-width: 4.5em; border-bottom: 3px solid var(--kid); margin: 0 3px; height: 1.2em; vertical-align: -2px; }
+.cloze mark { background: var(--ok-soft); color: #13804a; border-radius: 6px; padding: 0 4px; }
+.hint-box { background: #eef5ff; border-radius: 14px; padding: 8px 14px; }
+.hint-box .word-zh { font-size: 1.25rem; color: #1f4f99; }
+.tiles { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; min-height: 56px; align-items: center; width: 100%; }
+.tiles.answer { border-bottom: 3px dashed var(--line); padding-bottom: 10px; }
+.tile { min-width: 46px; height: 52px; padding: 0 6px; border-radius: 12px; border: 0; font-size: 1.5rem; font-weight: 800; background: #fff; box-shadow: 0 3px 0 #d9d1c6, 0 0 0 2px var(--line); }
+.tiles.answer .tile { background: color-mix(in srgb, var(--kid) 16%, white); box-shadow: 0 3px 0 color-mix(in srgb, var(--kid) 55%, white); }
+.tile:disabled { opacity: .18; box-shadow: none; }
+.tile:active:not(:disabled) { transform: translateY(2px); }
+.match { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+.match-col { display: grid; gap: 8px; align-content: start; }
+.match-item { min-height: 56px; border: 2px solid var(--line); border-radius: 14px; background: #fff; font-size: 1.1rem; font-weight: 700; padding: 6px 8px; word-break: break-word; }
+.match-item.zh { font-size: 1rem; }
+.match-item.sel { border-color: var(--kid); background: color-mix(in srgb, var(--kid) 14%, white); }
+.match-item.done { border-color: var(--ok); background: var(--ok-soft); color: #13804a; opacity: .75; }
+.match-item.bad { border-color: var(--bad); background: var(--bad-soft); animation: shake .3s; }
+@keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }

@@ -132,8 +132,11 @@ export function planToday(lists, progress, today, perDay, opts = {}) {
   return { newWords, reviewWords, dict };
 }
 
-/** 練習結束後計算新的進度。firstTryOk: Set(第一次就答對的字) */
-export function nextProgress(session, progress, firstTryOk, today) {
+/**
+ * 練習結束後計算新的進度。
+ * firstTryOk: Set(第一次就答對的字)；hinted: Set(看過提示才答對的字，熟練度不升級、照原本的間隔再複習)
+ */
+export function nextProgress(session, progress, firstTryOk, today, hinted = new Set()) {
   const patch = {};
   for (const k of session.newWords) {
     patch[k] = { b: 0, d: addDays(today, 1), n: 1, x: firstTryOk.has(k) ? 0 : 1, t: today };
@@ -141,9 +144,128 @@ export function nextProgress(session, progress, firstTryOk, today) {
   for (const k of session.reviewWords) {
     const p = progress[k] || { b: 0, n: 0, x: 0, t: today };
     const ok = firstTryOk.has(k);
-    const b = ok ? Math.min((p.b || 0) + 1, INTERVALS.length - 1) : 0;
+    const b = !ok ? 0 : hinted.has(k) ? (p.b || 0) : Math.min((p.b || 0) + 1, INTERVALS.length - 1);
     patch[k] = { ...p, b, d: addDays(today, ok ? INTERVALS[b] : 1), n: (p.n || 0) + 1, x: (p.x || 0) + (ok ? 0 : 1) };
   }
   return patch;
 }
 
+
+// ---------- 例句填空 ----------
+const reEsc = (t) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const CLEAN_SUFFIX = ['s', 'es', 'd', 'ed', 'ing', 'ly', 'er', 'est', 'r', 'n', "'s"];
+const NOT_LETTER_BEFORE = '(?<![A-Za-z])';
+const NOT_LETTER_AFTER = '(?![A-Za-z])';
+
+/**
+ * 把例句裡的單字挖空。回傳 { pre, suffix, post, shown } 或 null（例句裡找不到這個字）
+ * - 字尾只是多了 s／ed／ing 等：只挖掉原形，字尾留在畫面上（A rainbow ______ed in the sky.）
+ * - 去 e、重複字尾、y 變 i 等變化，或片語：整個挖掉（shown 是句子裡實際的寫法）
+ * - 不規則變化（fall → fell）找不到，回傳 null，改出其他題型
+ */
+export function makeCloze(word, ex) {
+  const w = String(word || '').trim();
+  const s = String(ex || '');
+  if (!w || !s || /\.\.\.|…/.test(w)) return null;
+  const flags = /^[A-Z]/.test(w) ? '' : 'i';      // 專有名詞（May）要大小寫相符；一般的字句首大寫也算
+  const parts = w.split(/\s+/);
+  const out = (m, baseLen, suffix) => {
+    const start = m.index;
+    const r = { pre: s.slice(0, start), suffix: suffix || '', post: s.slice(start + m[0].length), shown: m[0] };
+    if (baseLen != null) r.post = s.slice(start + baseLen + r.suffix.length);
+    return /[A-Za-z]/.test(r.pre + r.post) ? r : null;
+  };
+  let m;
+  if (parts.length === 1) {
+    const b = reEsc(w);
+    m = new RegExp(`${NOT_LETTER_BEFORE}(${b})(${CLEAN_SUFFIX.map(reEsc).join('|')})?${NOT_LETTER_AFTER}`, flags).exec(s);
+    if (m) return out(m, m[1].length, m[2]);
+    const last = w.slice(-1);
+    const variants = [];
+    if (/e$/i.test(w)) variants.push(`${reEsc(w.slice(0, -1))}(?:ing|ed|es|er|est)`);
+    if (/y$/i.test(w)) variants.push(`${reEsc(w.slice(0, -1))}(?:ies|ied|ier|iest|ily)`);
+    if (/[b-df-hj-np-tv-z]$/i.test(w)) variants.push(`${reEsc(w + last)}(?:ing|ed|er|est)`);
+    for (const v of variants) {
+      m = new RegExp(`${NOT_LETTER_BEFORE}${v}${NOT_LETTER_AFTER}`, flags).exec(s);
+      if (m) return out(m);
+    }
+    return null;
+  }
+  const [first, ...rest] = parts.map(reEsc);
+  m = new RegExp(`${NOT_LETTER_BEFORE}${first}(?:s|es|d|ed|ing)?\\s+${rest.join('\\s+')}${NOT_LETTER_AFTER}`, flags).exec(s);
+  return m ? out(m) : null;
+}
+
+/** 例句填空的答案：原形、原形＋畫面上的字尾、句子裡實際的寫法都算對 */
+export function clozeAccepts(answer, word, cz) {
+  return sameSpelling(answer, word) || sameSpelling(answer, cz.shown) || (!!cz.suffix && sameSpelling(answer, word + cz.suffix));
+}
+
+// ---------- 複習的題型 ----------
+// spell 看中文拼字｜cloze 例句填空（拼字）｜listen 聽音拼字｜clozeMc 例句填空（選擇）｜scramble 字母重組｜match 配對
+export const REVIEW_TYPES = ['cloze', 'clozeMc', 'listen', 'scramble', 'match'];
+// 依熟練度決定各題型出現的機會：剛學的字多給一點提示，熟的字提示少
+const WEIGHTS = [
+  { max: 1, w: { spell: 3, scramble: 3, clozeMc: 2, cloze: 1, listen: 0 } },
+  { max: 3, w: { spell: 2, scramble: 1, clozeMc: 2, cloze: 3, listen: 1 } },
+  { max: 99, w: { spell: 1, scramble: 0, clozeMc: 1, cloze: 3, listen: 3 } }
+];
+const TYPED = ['spell', 'cloze', 'listen'];
+
+/**
+ * 幫今天要複習的字各出一題。回傳 [{ type, k }]，配對題是 { type: 'match', ks: [...] }
+ * opts.enabled：開放的題型（陣列，預設全部）；opts.typedOnly：只能出打字題的字（例如快考試的補習班單字）
+ */
+export function buildReviewQuestions(keys, dict, progress, opts = {}) {
+  const rand = opts.rand || Math.random;
+  const enabled = new Set(['spell', ...(opts.enabled || REVIEW_TYPES)]);
+  const typedOnly = opts.typedOnly || new Set();
+  const pick = (weights) => {
+    const entries = Object.entries(weights).filter(([, v]) => v > 0);
+    let r = rand() * entries.reduce((a, [, v]) => a + v, 0);
+    for (const [t, v] of entries) { r -= v; if (r < 0) return t; }
+    return entries.length ? entries[entries.length - 1][0] : 'spell';
+  };
+  let rest = [...keys];
+  const out = [];
+  // 配對：挑 4～5 個有中文、中文不重複的字一起考
+  if (enabled.has('match')) {
+    const seenZh = new Set();
+    const eligible = shuffled(rest.filter((k) => !typedOnly.has(k)), rand).filter((k) => {
+      const zh = dict.get(k) && dict.get(k).zh;
+      if (!zh || seenZh.has(zh)) return false;
+      seenZh.add(zh);
+      return true;
+    });
+    const groups = eligible.length >= 15 ? 2 : eligible.length >= 4 ? 1 : 0;
+    for (let g = 0; g < groups; g++) {
+      const ks = eligible.slice(g * 5, g * 5 + 5);
+      if (ks.length < 4) break;
+      out.push({ type: 'match', ks });
+      rest = rest.filter((k) => !ks.includes(k));
+    }
+  }
+  for (const k of rest) {
+    const x = dict.get(k);
+    const b = (progress[k] && progress[k].b) || 0;
+    const cz = makeCloze(x.w, x.ex);
+    const avail = { spell: true, listen: true, cloze: !!cz, clozeMc: !!cz && dict.size >= 4, scramble: !!x.zh && /^[A-Za-z]{3,12}$/.test(x.w) };
+    const w = {};
+    for (const [t, v] of Object.entries(WEIGHTS.find((r) => b <= r.max).w)) {
+      if (enabled.has(t) && avail[t] && (!typedOnly.has(k) || TYPED.includes(t))) w[t] = v;
+    }
+    if (!Object.values(w).some((v) => v > 0)) w.spell = 1;
+    out.push({ type: pick(w), k });
+  }
+  return shuffled(out, rand);
+}
+
+/** 字母重組用：把字母打亂（保證和原本的順序不同） */
+export function scrambleLetters(word, rand = Math.random) {
+  const letters = [...word];
+  for (let i = 0; i < 20; i++) {
+    const s = shuffled(letters, rand);
+    if (s.join('') !== word) return s;
+  }
+  return letters.reverse();
+}

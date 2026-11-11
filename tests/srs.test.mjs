@@ -1,7 +1,8 @@
 // 每日單字邏輯測試：cd tests && node --test srs.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, buildDict, INTERVALS } from '../js/utils/srs.js';
+import { parseWords, wordsToText, planToday, nextProgress, sameSpelling, buildDict, INTERVALS,
+  makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters } from '../js/utils/srs.js';
 
 const W = (...ws) => ws.map((w) => ({ w, zh: w + '中', ex: '' }));
 
@@ -164,4 +165,88 @@ test('自動補齊：補習班單字缺的詞性、例句、中文，從字庫�
   const p = planToday([flyers, cram], {}, '2026-11-13', 5, { random: false });
   assert.equal(p.dict.get('library').pos, 'n.');
   assert.equal(p.newWords.filter((k) => k === 'library').length, 1);
+});
+
+test('例句填空：挖空、字尾留在畫面上、變化形整個挖掉、找不到就不出', () => {
+  const c = (w, ex) => { const r = makeCloze(w, ex); return r && `${r.pre}___${r.suffix}${r.post}|${r.shown}`; };
+  assert.equal(c('across', 'The bank is across the street.'), 'The bank is ___ the street.|across');
+  assert.equal(c('appear', 'A rainbow appeared in the sky.'), 'A rainbow ___ed in the sky.|appeared');
+  assert.equal(c('glove', 'I wear gloves in winter.'), 'I wear ___s in winter.|gloves');
+  assert.equal(c('arrive', 'We are arriving now.'), 'We are ___ now.|arriving');
+  assert.equal(c('hurry', 'She hurries to school.'), 'She ___ to school.|hurries');
+  assert.equal(c('stop', 'He stopped the car.'), 'He ___ the car.|stopped');
+  assert.equal(c('hurry', 'Hurry up or we will be late.'), '___ up or we will be late.|Hurry');
+  assert.equal(c('look after', 'She looks after him.'), 'She ___ him.|looks after');
+  assert.equal(c('May', 'My sister was born in May.'), 'My sister was born in ___.|May');
+  assert.equal(c('May', 'You may go.'), null);                 // 專有名詞要大小寫相符
+  assert.equal(c('art', 'We have a party and art class.'), 'We have a party and ___ class.|art');   // 不會挖到 party 裡的 art
+  assert.equal(c('a.m.', 'I get up at 7 a.m. every day.'), 'I get up at 7 ___ every day.|a.m.');
+  assert.equal(c('fall', 'Leaves fell down.'), null);
+  assert.equal(c('as ... as', 'She is as tall as her mother.'), null);
+  assert.equal(c('apple', 'Apple.'), null);
+  assert.equal(c('apple', ''), null);
+  const cz = makeCloze('appear', 'A rainbow appeared in the sky.');
+  assert.ok(clozeAccepts('appear', 'appear', cz));
+  assert.ok(clozeAccepts(' Appeared ', 'appear', cz));
+  assert.ok(!clozeAccepts('appears', 'appear', cz));
+  assert.ok(clozeAccepts('arriving', 'arrive', makeCloze('arrive', 'We are arriving now.')));
+});
+
+test('複習題型：每個字剛好一題、可關閉題型、快考試的字只出打字題、配對一組 4～5 個', () => {
+  const words = ['apple', 'banana', 'cherry', 'donut', 'eagle', 'flower', 'guitar', 'hammer', 'island', 'jacket'];
+  const dict = new Map(words.map((w) => [w, { w, pos: 'n.', zh: w + '中', ex: `I like the ${w} very much.` }]));
+  dict.set('look after', { w: 'look after', pos: 'phr.', zh: '照顧', ex: 'I look after him.' });
+  dict.set('spend', { w: 'spend', pos: 'v.', zh: '花', ex: 'I spent ten dollars.' });
+  const keys = [...dict.keys()];
+  const progress = Object.fromEntries(keys.map((k, i) => [k, { b: i % 7 }]));
+  const cover = (qs) => qs.flatMap((q) => q.ks || [q.k]).sort();
+  const seenTypes = new Set();
+  for (let i = 0; i < 200; i++) {
+    const qs = buildReviewQuestions(keys, dict, progress);
+    assert.deepEqual(cover(qs), [...keys].sort());
+    for (const q of qs) {
+      seenTypes.add(q.type);
+      if (q.type === 'match') assert.ok(q.ks.length >= 4 && q.ks.length <= 5);
+      if (q.type === 'scramble') assert.ok(/^[A-Za-z]{3,12}$/.test(q.k));          // 片語不出字母重組
+      if (q.type === 'cloze' || q.type === 'clozeMc') assert.notEqual(q.k, 'spend'); // 例句是 spent，不能出填空
+    }
+  }
+  assert.deepEqual([...seenTypes].sort(), ['cloze', 'clozeMc', 'listen', 'match', 'scramble', 'spell']);
+  // 只開放例句填空（拼字）
+  for (let i = 0; i < 50; i++) {
+    const qs = buildReviewQuestions(keys, dict, progress, { enabled: ['cloze'] });
+    assert.ok(qs.every((q) => q.type === 'cloze' || q.type === 'spell'));
+    assert.equal(qs.find((q) => q.k === 'spend').type, 'spell');
+  }
+  // 全部關閉 → 只有看中文拼字
+  assert.ok(buildReviewQuestions(keys, dict, progress, { enabled: [] }).every((q) => q.type === 'spell'));
+  // 快考試的字只出打字題，也不會被放進配對
+  const typedOnly = new Set(['apple', 'banana', 'cherry']);
+  for (let i = 0; i < 100; i++) {
+    for (const q of buildReviewQuestions(keys, dict, progress, { typedOnly })) {
+      const ks = q.ks || [q.k];
+      if (ks.some((k) => typedOnly.has(k))) assert.ok(['spell', 'cloze', 'listen'].includes(q.type));
+    }
+  }
+  // 字太少不出配對
+  assert.ok(buildReviewQuestions(['apple', 'banana', 'cherry'], dict, progress).every((q) => q.type !== 'match'));
+});
+
+test('字母重組：字母相同、順序一定不同', () => {
+  for (const w of ['cat', 'apple', 'library', 'aab']) {
+    for (let i = 0; i < 30; i++) {
+      const t = scrambleLetters(w);
+      assert.equal([...t].sort().join(''), [...w].sort().join(''));
+      assert.notEqual(t.join(''), w);
+    }
+  }
+});
+
+test('看提示才答對：熟練度不升級，照原本的間隔再複習；沒看提示照常升級；答錯仍回到隔天', () => {
+  const today = '2026-11-13';
+  const progress = { a: { b: 3, d: today, n: 4, x: 0 }, b: { b: 3, d: today, n: 4, x: 0 }, c: { b: 3, d: today, n: 4, x: 0 } };
+  const patch = nextProgress({ newWords: [], reviewWords: ['a', 'b', 'c'] }, progress, new Set(['a', 'b']), today, new Set(['b', 'c']));
+  assert.deepEqual([patch.a.b, patch.a.d], [4, '2026-11-28']);   // 沒看提示 → 升級，隔 15 天
+  assert.deepEqual([patch.b.b, patch.b.d], [3, '2026-11-20']);   // 看了提示 → 維持，隔 7 天
+  assert.deepEqual([patch.c.b, patch.c.d], [0, '2026-11-14']);   // 答錯 → 隔天
 });
