@@ -499,3 +499,5 @@ button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min
 @keyframes shake { 25% { transform: translateX(-5px); } 75% { transform: translateX(5px); } }
 .hint-box.letters { font-size: 1.5rem; font-weight: 800; letter-spacing: .08em; color: #1f4f99; font-family: ui-monospace, Menlo, monospace; }
 .list-done .goal-fill { background: linear-gradient(90deg, #2dbb6c, #7ad97f); }
+.item-missed .item-title { text-decoration: line-through; color: var(--muted); }
+.item-missed .check { opacity: .35; }

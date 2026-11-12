@@ -139,6 +139,7 @@ service cloud.firestore {
         // 小孩只能把未完成（或被退回）的項目勾選送出，不能自己核可；送出後不能取消，只有媽媽能退回
         allow update: if isMom()
           || (canKid(resource.data.kidId) && resource.data.review in ['none', 'returned']
+              && resource.data.get('missed', false) != true
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'doneAt', 'review'])
               && request.resource.data.done == true && request.resource.data.review == 'pending');
         allow delete: if isMom();

@@ -60,13 +60,11 @@ export const createWeeklyTask = (kidId, week, weekEnd, { title, note, points, su
 /** 把本週進度排到某一天（小孩只能排「還沒排」的；排定後要媽媽退回才能重排） */
 export const scheduleWeekly = (id, date) => updateDoc(fdoc('tasks', id), { date, updatedAt: serverTimestamp() });
 
-/** 媽媽退回已排定的本週進度：清空日期讓孩子重排，並移除那天還沒入帳的清單項目 */
-export async function unscheduleWeekly(t, momNote) {
-  const b = writeBatch(db);
-  b.update(fdoc('tasks', t.id), { date: '', momNote, updatedAt: serverTimestamp() });
-  b.delete(fdoc('items', `${t.kidId}_${t.date}_${t.id}`));
-  await b.commit();
-}
+/**
+ * 媽媽退回已排定的本週進度：清空日期讓孩子重排。
+ * 原本那天如果已經有清單項目，會留著並顯示「已改期」，那天不會因此變成全部完成。
+ */
+export const unscheduleWeekly = (t, momNote) => updateDoc(fdoc('tasks', t.id), { date: '', momNote, updatedAt: serverTimestamp() });
 
 /** 媽媽把逾期未排的進度移到另一週 */
 export const moveWeeklyTo = (id, week, weekEnd) => updateDoc(fdoc('tasks', id), { week, weekEnd, date: '', updatedAt: serverTimestamp() });

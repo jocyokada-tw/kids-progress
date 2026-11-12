@@ -52,8 +52,10 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
     if (!routines || !tasks || !items || !wordLists) return;
     const hasWords = wordLists.some((l) => (l.kids || []).includes(kidId) && l.count > 0);
     const expected = expectedFor(kidId, date, routines, tasks, hasWords);
+    // 今天和過去的日子：已經出現在清單上的項目都要留著顯示。
+    // 之後被改期、退回重排或刪掉來源的項目，標成「已改期／取消」但仍算在當天，避免那天被誤判為全部完成。
     const visible = items
-      .filter((it) => it.review === 'approved' || expected.has(it.id) || (it.sourceType === 'words' && it.done))
+      .filter((it) => isPastOrToday || it.review === 'approved' || expected.has(it.id))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title));
     // 「全部完成」的判斷以畫面上看到的清單為準：每個應該有的項目都已建立而且已核可
     const have0 = new Map(items.map((it) => [it.id, it]));
@@ -72,10 +74,16 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
     for (const it of items) {
       if (it.review === 'approved') continue;
       const e = expected.get(it.id);
-      if (!e && it.sourceType === 'words' && it.done) continue; // 過去日期已完成的單字項目保留給媽媽核可
       if (!e) {
-        if (!tried.has('d' + it.id)) { tried.add('d' + it.id); deleteDoc(fdoc('items', it.id)).catch(onError); }
-      } else if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
+        // 來源不見了（改期、退回重排、刪除）：不刪掉，標成「已改期／取消」；每日單字只是當天沒做，不用標
+        if (it.sourceType !== 'words' && !it.missed && !tried.has('m' + it.id)) {
+          tried.add('m' + it.id);
+          updateDoc(fdoc('items', it.id), { missed: true }).catch(onError);
+        }
+        continue;
+      }
+      if (it.missed && !tried.has('r' + it.id)) { tried.add('r' + it.id); updateDoc(fdoc('items', it.id), { missed: false }).catch(onError); }
+      if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
         const key = `u${it.id}|${e.title}|${e.points}|${e.order}|${e.subject}`;
         if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order, subject: e.subject }).catch(onError); }
       }
@@ -99,6 +107,9 @@ export async function markWordsDone(kidId, date, points) {
   const s = await getDoc(fdoc('items', id));
   if (s.exists() && ['none', 'returned'].includes(s.data().review)) await setItemDone(id, true);
 }
+
+/** 媽媽把「已改期／取消」的項目從那天的清單移除（移除後不算在那天，可能讓那天變成全部完成） */
+export const removeItem = (id) => deleteDoc(fdoc('items', id));
 
 /** 讀一次某個清單項目（不存在回傳 null） */
 export async function getItemOnce(kidId, date, sourceId) {
