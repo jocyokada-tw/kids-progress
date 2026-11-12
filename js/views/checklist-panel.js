@@ -1,7 +1,7 @@
 import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints, confirmDialog } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus, removeItem } from '../store/checklist.js';
-import { todayStr } from '../utils/date.js';
+import { todayStr, labelMD } from '../utils/date.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
@@ -75,9 +75,10 @@ export function mountChecklistPanel(el, { kid, date }) {
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
             ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
-            ${it.missed ? '<span class="tag tag-bad">↪ 已改期／取消</span>' : STATUS[it.review] || ''}
+            ${it.missed ? (it.carriedTo ? `<span class="tag tag-bad">⏰ ${it.carriedTo === 'overdue' ? '沒完成，本週進度已逾期' : `沒完成，已順延到 ${labelMD(it.carriedTo)}`}</span>` : '<span class="tag tag-bad">↪ 已改期／取消</span>') : STATUS[it.review] || ''}
+            ${it.carriedFrom && !it.missed ? `<span class="tag tag-wait">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
           </div>
-          ${it.missed && mom ? '<div class="item-note">這一項改到其他天或取消了，還是算在這天的清單裡，所以這天不算全部完成。</div>' : ''}
+          ${it.missed && mom ? `<div class="item-note">${it.carriedTo ? '這天沒有完成' : '這一項改到其他天或取消了'}，還是算在這天的清單裡，所以這天不算全部完成。</div>` : ''}
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
         </div>
         <span class="pts">+${it.points || 0}</span>
@@ -111,7 +112,7 @@ export function mountChecklistPanel(el, { kid, date }) {
       switch (b.dataset.act) {
         case 'toggle': {
           if (it.review === 'approved') return toast('已經入帳囉，不能取消 ✓');
-          if (it.missed) return toast('這一項已經改到其他天了');
+          if (it.missed) return toast(it.carriedTo && it.carriedTo !== 'overdue' ? `這一項已經順延到 ${labelMD(it.carriedTo)}，請在那天勾選` : '這一項已經改到其他天了');
           // 小孩送出後就鎖定，只有媽媽可以退回
           if (!mom && it.sourceType === 'words' && it.review !== 'pending') return go(`/k/${kid}/words`);
           if (!mom && it.review === 'pending') return toast('已經送出等媽媽核可囉 🔒 要取消的話請媽媽退回');

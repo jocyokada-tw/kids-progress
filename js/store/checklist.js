@@ -20,7 +20,7 @@ function expectedFor(kidId, date, routines, tasks, hasWords) {
     ...routines.filter((r) => r.active !== false && (r.weekdays || []).includes(wd))
       .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '' })),
     ...tasks.filter((t) => t.status === 'approved')
-      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '' })),
+      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '', carriedFrom: (t.carriedFrom || []).slice(-1)[0] || '' })),
     // 每日單字：有字庫的小孩，當天自動多一項（只在當天產生）
     ...(hasWords && date === todayStr() ? [{ sourceType: 'words', sourceId: 'words', title: WORDS_TITLE, points: wordPoints(), order: 500, subject: '' }] : [])
   ];
@@ -56,6 +56,7 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
     // 之後被改期、退回重排或刪掉來源的項目，標成「已改期／取消」但仍算在當天，避免那天被誤判為全部完成。
     const visible = items
       .filter((it) => isPastOrToday || it.review === 'approved' || expected.has(it.id))
+      .map((it) => (expected.get(it.id)?.carriedFrom ? { ...it, carriedFrom: expected.get(it.id).carriedFrom } : it))
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title));
     // 「全部完成」的判斷以畫面上看到的清單為準：每個應該有的項目都已建立而且已核可
     const have0 = new Map(items.map((it) => [it.id, it]));

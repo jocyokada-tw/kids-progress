@@ -334,6 +334,7 @@ export function mountSettings(el) {
         ${sw('mom.itemDone', n.mom.itemDone, '✅ 孩子勾選完成，等你核可（同一天合併成一則）')}
         ${sw('mom.redeem', n.mom.redeem, '🎁 孩子申請兌換')}
         ${sw('mom.message', n.mom.message, '💬 孩子的留言')}
+        ${sw('mom.carry', n.mom.carry, '⏰ 孩子前一天沒完成、自動順延的作業（早上）')}
         <h3 class="small muted">孩子會收到</h3>
         ${sw('kid.taskReview', n.kid.taskReview, '✅ 進度被確認或退回（含建議）')}
         ${sw('kid.itemReview', n.kid.itemReview, '⭐ 點數入帳、被退回、額外獎勵')}
@@ -341,6 +342,7 @@ export function mountSettings(el) {
         ${sw('kid.message', n.kid.message, '💬 媽媽的留言')}
         ${sw('kid.weekly', n.kid.weekly, '📦 媽媽新增了本週進度')}
         ${sw('kid.daily', n.kid.daily, '🌙 每日提醒：今天還沒完成的項目')}
+        ${sw('kid.carry', n.kid.carry, '⏰ 前一天沒完成的作業已順延到今天（早上）')}
         <div class="field-row" style="margin-top:12px">
           <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
         </div>
