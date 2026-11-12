@@ -50,7 +50,7 @@ export function mountWords(el, { kid }) {
       el.innerHTML = `${head}<section class="card"><p class="empty">${mom ? '還沒有給這個孩子的字庫。到「設定 → 每日單字」新增字庫並貼上單字。' : '媽媽還沒有準備單字喔 📚'}</p></section>`;
       return;
     }
-    el.innerHTML = head + (mom ? momHtml(learned) : kidHtml(learned)) + learnedHtml();
+    el.innerHTML = head + (mom ? momHtml(learned) : kidHtml(learned) + listsProgressHtml()) + learnedHtml();
     // 畫面上列出的單字先把發音準備好，按 🔊 時才能立刻播放自然語音
     prefetch([...el.querySelectorAll('.word-list [data-say]')].map((b) => b.dataset.say));
   }
@@ -84,6 +84,21 @@ export function mountWords(el, { kid }) {
       <li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
         <span class="grow"><strong>${esc(x.w)}</strong> ${posTag(x)}<span class="muted">${esc(x.zh)}</span>${x.ex ? `<br><span class="muted small">${esc(x.ex)}</span>` : ''}</span>
         ${wrong.includes(wordKey(x.w)) ? '<span class="tag tag-bad">再加油</span>' : ''}</li>`).join('')}</ul>`;
+  }
+
+  // 每份字庫的進度：學完會顯示 🎉（孩子和媽媽都看得到）
+  function listsProgressHtml() {
+    if (!lists || !lists.length) return '';
+    const rows = lists.map((l) => {
+      const n = l.words.filter((x) => progress[wordKey(x.w)]).length;
+      return { l, n, total: l.words.length, done: l.words.length > 0 && n >= l.words.length };
+    }).sort((a, b) => Number(a.done) - Number(b.done));
+    return `<section class="card"><h2>字庫進度</h2>
+      ${rows.map(({ l, n, total, done }) => `<div class="list-prog ${done ? 'list-done' : ''}">
+        <div><strong>${esc(l.name)}</strong> <span class="tag">${l.kind === 'cram' ? `補習班${l.testDate ? `・${labelMD(l.testDate)} 考` : ''}` : '字庫'}</span>
+          ${done ? '<span class="tag tag-ok">🎉 學完了！</span>' : `<span class="muted small">${n}／${total}</span>`}</div>
+        <div class="goal-bar"><div class="goal-fill" style="width:${total ? Math.min(100, (n / total) * 100) : 0}%"></div></div></div>`).join('')}
+    </section>`;
   }
 
   // 學過的單字：隨時可以回來聽發音、看下次什麼時候複習
@@ -127,14 +142,7 @@ export function mountWords(el, { kid }) {
         <p><strong>今天：</strong>${todayState}${session ? ' <button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button>' : ''}</p>
         ${session && session.wrong.length ? wordRows(session.wrong.map((k) => dict.get(k)).filter(Boolean)) : ''}
       </section>
-      <section class="card"><h2>字庫進度</h2>
-        ${lists.map((l) => {
-          const n = l.words.filter((x) => progress[wordKey(x.w)]).length;
-          return `<div class="list-prog"><div><strong>${esc(l.name)}</strong> <span class="tag">${l.kind === 'cram' ? `補習班${l.testDate ? `・${labelMD(l.testDate)} 考` : ''}` : '字庫'}</span>
-            <span class="muted small">${n}／${l.words.length}</span></div>
-            <div class="goal-bar"><div class="goal-fill" style="width:${l.words.length ? (n / l.words.length) * 100 : 0}%"></div></div></div>`;
-        }).join('')}
-      </section>
+      ${listsProgressHtml()}
       <section class="card"><h2>最常答錯的字</h2>
         ${hard.length ? `<ul class="word-list">${hard.map(([k, p]) => { const x = dict.get(k); return `<li><button class="icon-btn speak" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button><span class="grow"><strong>${esc(x.w)}</strong> ${posTag(x)}<span class="muted">${esc(x.zh)}</span></span><span class="tag tag-bad">錯 ${p.x} 次</span></li>`; }).join('')}</ul>` : '<p class="empty">目前沒有</p>'}
       </section>
