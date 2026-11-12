@@ -6,6 +6,9 @@ import { isLateDone, isOverdueNow, latePoints } from '../utils/timed.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
+import { journalSettings, isClassDay, classesOn, categoryOf, canWrite } from '../utils/journal.js';
+import { watchNote } from '../store/journal.js';
+import { noteStatus } from './journal.js';
 
 const STATUS = {
   pending: '<span class="tag tag-wait">⏳ 待核可</span>',
@@ -20,6 +23,22 @@ export function mountChecklistPanel(el, { kid, date }) {
   let bonusTried = false;
   const mom = isMom();
   const future = date > todayStr();
+  // 課後小記：上課日多一列，不算在「全部完成」裡、沒有點數（點數由小記本身自動入帳）
+  el.innerHTML = '<div></div><div></div>';
+  const listEl = el.firstElementChild, noteEl = el.lastElementChild;
+  const jcfg = journalSettings(state.settings);
+  const hasNote = !future && isClassDay(jcfg, kid, date);
+  let note;
+  const drawNote = () => {
+    if (!hasNote || note === undefined) { noteEl.innerHTML = ''; return; }
+    const st = noteStatus(note);
+    const open = !note && canWrite(jcfg, kid, date, todayStr());
+    noteEl.innerHTML = `<button class="journal-row" data-act="journal">
+      <span class="journal-icon">📝</span>
+      <span class="grow"><strong>課後小記</strong><br><span class="muted small">${classesOn(jcfg, kid, date).map((c) => categoryOf(c.category).emoji + categoryOf(c.category).label).join('、')}</span></span>
+      <span class="tag ${st.cls}">${st.text}</span>${open && !mom ? '<span class="tag tag-wait">寫一下 ▶</span>' : ''}</button>`;
+  };
+  const unsubNote = hasNote ? watchNote(kid, date, (n) => { note = n; drawNote(); }, (e) => showError(e, '讀取小記')) : null;
 
   const unsub = future ? null : watchChecklist(kid, date, {
     canReconcile: !!state.device.isMom,
@@ -28,10 +47,10 @@ export function mountChecklistPanel(el, { kid, date }) {
   });
 
   function draw() {
-    if (future) { el.innerHTML = `<p class="empty">還沒到這一天喔 🌙</p>`; return; }
-    if (!items) { el.innerHTML = `<p class="empty">載入中…</p>`; return; }
+    if (future) { listEl.innerHTML = `<p class="empty">還沒到這一天喔 🌙</p>`; return; }
+    if (!items) { listEl.innerHTML = `<p class="empty">載入中…</p>`; return; }
     if (!items.length) {
-      el.innerHTML = `<p class="empty">${navigator.onLine ? '' : '📴 離線中：連上網路後會產生這天的清單。<br>'}這天沒有項目 🎈${mom ? '<br><span class="small">可到「設定」新增每日固定事項，或到「排程」安排進度。</span>' : ''}</p>`;
+      listEl.innerHTML = hasNote ? '' : `<p class="empty">${navigator.onLine ? '' : '📴 離線中：連上網路後會產生這天的清單。<br>'}這天沒有項目 🎈${mom ? '<br><span class="small">可到「設定」新增每日固定事項，或到「排程」安排進度。</span>' : ''}</p>`;
       return;
     }
     const total = items.length;
@@ -42,7 +61,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     const bonus = Number(state.settings.bonusAllDone) || 0;
     const pendingCount = items.filter((i) => i.review === 'pending').length;
 
-    el.innerHTML = `
+    listEl.innerHTML = `
       <div class="progress" role="progressbar" aria-valuemin="0" aria-valuemax="${total}" aria-valuenow="${doneN}">
         <div class="progress-bar" style="width:${(doneN / total) * 100}%"></div>
         <span class="progress-text">${doneN} / ${total} 完成</span>
@@ -113,6 +132,7 @@ export function mountChecklistPanel(el, { kid, date }) {
 
   el.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-act]');
+    if (b && b.dataset.act === 'journal') return go(`/k/${kid}/journal/${date}`);
     if (!b || !items) return;
     const it = items.find((i) => i.id === b.dataset.id);
     try {
@@ -165,5 +185,5 @@ export function mountChecklistPanel(el, { kid, date }) {
   });
 
   draw();
-  return () => unsub && unsub();
+  return () => { unsub && unsub(); unsubNote && unsubNote(); };
 }

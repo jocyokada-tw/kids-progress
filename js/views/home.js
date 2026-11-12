@@ -1,4 +1,4 @@
-import { isMom, member } from '../state.js';
+import { state, isMom, member } from '../state.js';
 import { esc, showError } from '../ui.js';
 import { go } from '../router.js';
 import { watchLedger } from '../store/ledger.js';
@@ -12,6 +12,9 @@ import { watchWordLists, watchSession } from '../store/words.js';
 import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
+import { journalSettings, usesJournal, writableDates, isClassDay } from '../utils/journal.js';
+import { watchNotes } from '../store/journal.js';
+import { noteStatus } from './journal.js';
 
 export const TASK_STATUS = {
   pending: '<span class="tag tag-wait">待媽媽確認</span>',
@@ -36,6 +39,7 @@ export function mountHome(el, { kid }) {
     <section class="card due-card" id="dueCard" hidden></section>
     <section class="card" id="goal" hidden></section>
     <section class="card" id="wordsCard" hidden></section>
+    <section class="card" id="journalCard" hidden></section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><h2>今日清單 <span class="muted small">${labelMD(today)}</span></h2>
@@ -121,6 +125,29 @@ export function mountHome(el, { kid }) {
   };
   unsubs.push(watchWordLists((l) => { hasWords = l.some((x) => (x.kids || []).includes(kid) && x.count > 0); drawWords(); }, (e) => showError(e, '讀取字庫')));
   unsubs.push(watchSession(kid, today, (s) => { wordSession = s; drawWords(); }, (e) => showError(e, '讀取單字')));
+
+  // 課後小記入口：上課日、或本週還有沒寫的上課日才出現。不催促，只是溫和提醒
+  const jcfg = journalSettings(state.settings);
+  if (usesJournal(jcfg, kid)) {
+    const jdates = writableDates(jcfg, kid, today);
+    unsubs.push(watchNotes(kid, (notes) => {
+      const by = new Map(notes.map((n) => [n.date, n]));
+      const open = jdates.filter((d) => !by.has(d));
+      const classToday = isClassDay(jcfg, kid, today);
+      const c = $('#journalCard');
+      c.hidden = !classToday && !open.length;
+      if (c.hidden) return;
+      const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
+      const st = classToday ? noteStatus(by.get(today)) : null;
+      const gentle = !isMom() && classToday && !by.has(today) && hm >= (jcfg.reminderTime || '18:30');
+      const status = classToday ? `今天：${st.text}` : '';
+      const makeup = open.filter((d) => d !== today).length;
+      c.innerHTML = `<div class="push-card"><span style="font-size:2rem">📝</span>
+        <div class="grow"><strong>課後小記</strong><br><span class="muted small">${[status, makeup ? `這週還有 ${makeup} 天可以補寫` : ''].filter(Boolean).join('・')}</span>
+          ${gentle ? '<br><span class="small">上完課了嗎？花 30 秒記一下就好 🙂</span>' : ''}</div>
+        <button class="btn ${!isMom() && open.length ? 'btn-primary' : 'btn-ghost'}" data-go="/k/${kid}/journal">${isMom() ? '查看' : open.length ? '寫一下 ▶' : '看小記'}</button></div>`;
+    }, (e) => showError(e, '讀取小記')));
+  }
 
   if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });
   const cleanPanel = mountChecklistPanel($('#today'), { kid, date: today });

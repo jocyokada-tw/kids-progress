@@ -1,11 +1,12 @@
 // 推播通知：Firestore 資料變動時，發通知給媽媽或小孩的裝置。
 // 部署方式請看 docs/PUSH.md。這個檔案只放「觸發條件」，共用邏輯在 core.js。
-import { onDocumentCreated, onDocumentUpdated } from 'firebase-functions/v2/firestore';
+import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { ttsHandler } from './tts.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { db, TZ, notify, kidName, clip, md, runPeriodic } from './core.js';
+import { onNoteWritten } from './journal.js';
 
 // ⚠️ 必須和 Firestore 資料庫的位置相同（Firebase 主控台 → Firestore → 資料庫位置）
 const REGION = 'asia-east1';
@@ -131,6 +132,12 @@ export const onMessageCreated = onDocumentCreated('families/{fid}/threads/{kidId
   } else {
     await notify(fid, 'mom', 'message', { title: `💬 ${await kidName(fid, kidId)}`, body: clip(m.text, 100), url, tag: `msg-${kidId}` });
   }
+});
+
+// ---------- 課後小記：依填寫內容自動入帳、媽媽留言通知 ----------
+export const onClassNoteWritten = onDocumentWritten('families/{fid}/classNotes/{id}', async (event) => {
+  const { fid, id } = event.params;
+  await onNoteWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 // ---------- 雲端語音（每日單字的發音） ----------

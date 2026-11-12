@@ -13,7 +13,7 @@ export const db = getFirestore();
 // ---------- 設定 ----------
 export const DEFAULT_NOTIFY = {
   mom: { kidTask: true, itemDone: true, redeem: true, message: true, carry: true, due: true },
-  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true, due: true, timed: true },
+  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true, due: true, timed: true, journal: true, journalComment: true },
   quietStart: '22:00',
   quietEnd: '07:00',
   dailyTime: '20:00',
@@ -341,5 +341,6 @@ export async function runPeriodic(date = new Date()) {
     await afterSchool(f.id, s, now);
     await timedReminder(f.id, s, now);
     await dailyReminder(f.id, s, now);
+    await (await import('./journal.js')).journalReminder(f.id, s, now);
   }
 }

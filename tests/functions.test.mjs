@@ -348,3 +348,68 @@ test('指定時間前 30 分鐘提醒孩子；已送出的不提醒；每個時�
   const l = (await logs()).filter((m) => m.tag === 'timed-kidA');
   assert.deepEqual(l.map((m) => m.title).sort(), ['⏰ 18:30 前要完成：洗餐碗', '⏰ 19:00 前要完成：練琴']);
 });
+
+// ---------- 課後小記 ----------
+import { awardNote, onNoteWritten, journalReminder } from '../functions/journal.js';
+import { loadSettings } from '../functions/core.js';
+const at = (date, hm = '17:00') => ({ date, hm, weekday: new Date(date + 'T00:00:00Z').getUTCDay() });
+const ledgerOf = async () => (await db.collection(`${F}/ledger`).where('type', '==', 'classNote').get()).docs.map((d) => ({ id: d.id, ...d.data() }));
+const writeNote = async (id, data, now) => {
+  const ref = db.doc(`${F}/classNotes/${id}`);
+  const before = (await ref.get()).data() || null;
+  await ref.set(data, { merge: true });
+  await onNoteWritten('home', id, before, (await ref.get()).data(), now);
+  return (await ref.get()).data();
+};
+
+test('課後小記：依填寫自動入帳、升級補差額、不扣點、重複觸發只入帳一次', async () => {
+  const id = 'kidA_2026-11-10';   // 週二
+  const tue = at('2026-11-10');
+  let n = await writeNote(id, { kidId: 'kidA', date: '2026-11-10', mood: 'fun' }, tue);
+  assert.equal(n.awarded, undefined);                         // 只選心情還不算
+  n = await writeNote(id, { learned: '分數' }, tue);
+  assert.equal(n.level, 'basic'); assert.equal(n.awarded, 1); assert.equal(n.onTheDay, true);
+  n = await writeNote(id, { interesting: '原來', question: '為什麼' }, at('2026-11-12'));   // 週四補完整：當天開始寫的仍算當天
+  assert.equal(n.level, 'full'); assert.equal(n.awarded, 3);
+  assert.equal(await awardNote('home', id, tue), 0);          // 重複觸發
+  n = await writeNote(id, { question: '', interesting: '' }, tue);   // 刪掉內容：不扣
+  assert.equal(n.level, 'basic'); assert.equal(n.awarded, 3);
+  n = await writeNote(id, { skipped: true }, tue);
+  assert.equal(n.awarded, 3);
+  const l = await ledgerOf();
+  assert.deepEqual(l.map((x) => x.amount).sort(), [1, 2]);
+  assert.equal(l.reduce((s, x) => s + x.amount, 0), 3);
+  assert.ok((await logs()).some((m) => m.title.includes('課後小記 +1')));
+});
+
+test('課後小記：補寫（同一週）、非上課日、上週、沒開啟的孩子都不給點；可設定補寫少給', async () => {
+  await db.doc(`${F}/meta/settings`).set({ notify: NO_QUIET, journal: { lateDeduct: 1 } });
+  const full = { mood: 'okay', learned: 'a', interesting: 'b', question: 'c' };
+  let n = await writeNote('kidA_2026-11-10', { kidId: 'kidA', date: '2026-11-10', ...full }, at('2026-11-15'));   // 週日補週二
+  assert.equal(n.onTheDay, false); assert.equal(n.awarded, 2);
+  n = await writeNote('kidA_2026-11-11', { kidId: 'kidA', date: '2026-11-11', ...full }, at('2026-11-11'));       // 週三沒課
+  assert.equal(n.awarded, undefined);
+  n = await writeNote('kidA_2026-11-06', { kidId: 'kidA', date: '2026-11-06', ...full }, at('2026-11-10'));       // 上週五
+  assert.equal(n.awarded, undefined);
+  n = await writeNote('kidA_2026-11-13', { kidId: 'kidA', date: '2026-11-13', ...full }, at('2026-11-12'));       // 未來
+  assert.equal(n.awarded, undefined);
+  n = await writeNote('kidB_2026-11-10', { kidId: 'kidB', date: '2026-11-10', ...full }, at('2026-11-10'));       // 沒開啟
+  assert.equal(n.awarded, undefined);
+  n = await writeNote('kidA_2026-11-12', { kidId: 'kidB', date: '2026-11-12', ...full }, at('2026-11-12'));       // ID 不符
+  assert.equal(n.awarded, undefined);
+  assert.equal((await ledgerOf()).length, 1);
+});
+
+test('課後小記：媽媽留言通知孩子；上課日 18:30 後沒寫才溫和提醒一次', async () => {
+  await writeNote('kidA_2026-11-10', { kidId: 'kidA', date: '2026-11-10', mood: 'fun', learned: 'x' }, at('2026-11-10'));
+  await writeNote('kidA_2026-11-10', { momComment: '好有趣！' }, at('2026-11-10'));
+  assert.ok((await logs()).some((m) => m.who === 'kidA' && m.title.includes('媽媽回應') && m.body === '好有趣！'));
+  const s = await loadSettings('home');
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-12', '18:00')), []);   // 還沒到時間
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-12', '18:30')), ['kidA']);
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-12', '19:00')), []);   // 一天一次
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-10', '18:30')), []);   // 已經寫了
+  await db.doc(`${F}/classNotes/kidA_2026-11-13`).set({ kidId: 'kidA', date: '2026-11-13', skipped: true });
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-13', '18:30')), []);   // 選了休息
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-11', '18:30')), []);   // 沒課
+});

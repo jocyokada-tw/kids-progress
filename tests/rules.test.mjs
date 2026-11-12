@@ -377,3 +377,24 @@ test('指定完成時間：小孩補建的項目時間必須和來源一致；�
   await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
   await assertFails(updateDoc(ref, { dueTime: '' }));
 });
+
+test('課後小記：孩子寫自己的；點數欄位只有伺服器能寫；留言只有媽媽能寫', async () => {
+  const a = db('a');
+  const ref = doc(a, F, 'classNotes/kidA_2026-11-10');
+  const base = { kidId: 'kidA', date: '2026-11-10', mood: 'fun', learned: '分數', updatedAt: serverTimestamp() };
+  await assertFails(setDoc(doc(a, F, 'classNotes/kidA_2026-11-11'), base));            // ID 和日期不一致
+  await assertFails(setDoc(doc(a, F, 'classNotes/kidB_2026-11-10'), { ...base, kidId: 'kidB' }));   // 別人的
+  await assertFails(setDoc(ref, { ...base, awarded: 3 }));                              // 自己給點數
+  await assertSucceeds(setDoc(ref, base));
+  await assertSucceeds(setDoc(ref, { interesting: '原來', updatedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(updateDoc(ref, { level: 'full' }));
+  await assertFails(updateDoc(ref, { momComment: '好棒' }));
+  await assertFails(updateDoc(ref, { date: '2026-11-11' }));
+  const m = db('mom');
+  await assertSucceeds(updateDoc(doc(m, F, 'classNotes/kidA_2026-11-10'), { momComment: '好棒', momCommentAt: serverTimestamp() }));
+  await assertFails(updateDoc(doc(m, F, 'classNotes/kidA_2026-11-10'), { awarded: 9 }));
+  await assertSucceeds(getDoc(ref));
+  await assertSucceeds(getDocs(query(collection(a, F, 'classNotes'), where('kidId', '==', 'kidA'))));
+  await assertFails(getDocs(query(collection(a, F, 'classNotes'), where('kidId', '==', 'kidB'))));
+  await assertFails(deleteDoc(ref));
+});
