@@ -507,3 +507,33 @@ button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min
 .list-sub { border-left: 3px solid var(--line); padding-left: 10px; margin: 6px 0 4px 6px; }
 .bonus-late { background: var(--bad-soft); color: #9b2638; font-weight: 700; }
 .pts s { font-size: .8em; margin-left: 2px; }
+
+/* ---------- 課後小記 ---------- */
+.jweek { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 12px; }
+.jday { flex: 0 0 auto; display: flex; flex-direction: column; align-items: center; gap: 4px; min-width: 96px; padding: 10px 12px;
+  border: 2px solid var(--line); border-radius: 14px; background: var(--card, #fff); color: var(--ink); font: inherit; cursor: pointer; }
+.jday.active { border-color: var(--kid); background: color-mix(in srgb, var(--kid) 10%, white); }
+.moods { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.mood { display: flex; flex-direction: column; align-items: center; gap: 2px; padding: 10px 4px; min-height: 64px;
+  border: 2px solid var(--line); border-radius: 14px; background: #fff; color: var(--ink); font: inherit; cursor: pointer; }
+.mood-emoji { font-size: 1.8rem; line-height: 1; }
+.mood.on, .jchoice.on { border-color: var(--kid); background: color-mix(in srgb, var(--kid) 16%, white); }
+.chips-row { display: flex; flex-wrap: wrap; gap: 8px; margin: 4px 0 8px; }
+.chips-col { display: flex; flex-direction: column; gap: 6px; }
+.jchoice { padding: 8px 14px; min-height: 40px; border: 2px solid var(--line); border-radius: 999px; background: #fff; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.chips-col .jchoice { border-radius: 12px; }
+.jnote { margin: 4px 0 10px; padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, var(--kid) 8%, white); }
+.jmore { margin: 8px 0; padding-top: 8px; border-top: 1px dashed var(--line); }
+.jsubmit { position: sticky; bottom: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;
+  margin: 12px -4px 0; padding: 10px 4px; background: var(--card, #fff); }
+.jcard p { margin: 6px 0; overflow-wrap: anywhere; }
+.jmood { font-size: 1.1rem; }
+.jcomment { margin-top: 8px; padding: 8px 12px; border-radius: 12px; background: #fff6e0; }
+.jcomment-form { display: flex; gap: 8px; align-items: flex-end; margin-top: 8px; }
+.jcomment-form textarea { flex: 1; min-width: 0; }
+.journal-row { display: flex; align-items: center; gap: 10px; width: 100%; margin-top: 10px; padding: 10px 12px; flex-wrap: wrap;
+  border: 1px dashed var(--line); border-radius: 14px; background: transparent; color: var(--ink); font: inherit; text-align: left; cursor: pointer; }
+.journal-icon { font-size: 1.5rem; }
+.jsched-row { display: grid; grid-template-columns: 4.6em minmax(0, 1fr) 3.6em auto; gap: 6px; align-items: center; margin-bottom: 6px; }
+.jsched-row .select, .jsched-row input { min-width: 0; width: 100%; padding-left: 8px; padding-right: 4px; }
+.section-title { margin: 16px 4px 8px; font-size: 1rem; }

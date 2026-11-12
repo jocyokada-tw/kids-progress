@@ -1,0 +1,109 @@
+{
+  "version": 1,
+  "feelings": [
+    {
+      "id": "interesting",
+      "label": "有趣",
+      "refinements": ["驚訝", "好奇", "佩服", "期待", "被考倒了"],
+      "followUp": "是哪一個畫面或哪一句話讓你這樣覺得？",
+      "sentenceStarter": "我覺得有趣，是因為我本來以為……，結果……"
+    },
+    {
+      "id": "fun",
+      "label": "好玩",
+      "refinements": ["很刺激", "很有成就感", "可以動手", "跟朋友一起"],
+      "followUp": "是玩的過程好玩，還是做出結果好玩？",
+      "sentenceStarter": "最好玩的是……的時候，因為……"
+    },
+    {
+      "id": "happy",
+      "label": "開心",
+      "refinements": ["被稱讚", "想通了", "成功了", "輕鬆"],
+      "followUp": "是什麼時候開始開心的？",
+      "sentenceStarter": "我是在……的時候覺得開心，因為……"
+    },
+    {
+      "id": "okay",
+      "label": "還好",
+      "refinements": [],
+      "followUp": "如果給今天 1～5 顆星，你會給幾顆？哪一部分可以多加一顆？",
+      "sentenceStarter": "今天沒有特別……，但是……這一部分還不錯"
+    },
+    {
+      "id": "tired",
+      "label": "累",
+      "refinements": [],
+      "followUp": null,
+      "sentenceStarter": null,
+      "note": "不追問原因，只顯示：累的時候也記得留下一句，很棒"
+    },
+    {
+      "id": "boring",
+      "label": "無聊",
+      "refinements": [],
+      "followUp": null,
+      "sentenceStarter": null,
+      "useBoringFlow": true
+    }
+  ],
+  "boringFlow": {
+    "firstLevelQuestion": "是哪一種呢？",
+    "responseMessage": "謝謝你說實話，這很有用",
+    "reasons": [
+      { "id": "already_know", "label": "這個內容我早就會了", "secondLevel": "如果可以再挑戰難一點的，你想挑戰什麼？" },
+      { "id": "not_interested", "label": "這個主題我沒那麼有興趣", "secondLevel": "這個主題裡，有沒有哪一小部分比較不討厭？" },
+      { "id": "dislike", "label": "這個我不太喜歡", "secondLevel": "如果要把它變得比較好玩，你會加什麼？" },
+      { "id": "too_hard", "label": "這個有點難，我跟不太上", "secondLevel": "哪一個地方卡住了？是聽不懂，還是不知道怎麼開始？" },
+      { "id": "unsure_how", "label": "我不太確定怎麼做才對", "secondLevel": "如果可以問老師一個問題，你會問什麼？" },
+      { "id": "too_long_tired", "label": "活動太久了，我有點累", "secondLevel": "那一段時間，你比較想做什麼？" },
+      { "id": "other", "label": "其他", "secondLevel": null, "allowFreeText": true }
+    ],
+    "sensitiveReasonIds": ["not_interested", "dislike", "too_hard"],
+    "parentHint": "這類課程近幾週有較多類似回應，可以找時間聊聊"
+  },
+  "weeklyStarters": {
+    "humanities": [
+      { "id": "h1", "type": "surprise", "text": "這週我最驚訝的是……，因為我本來以為……" },
+      { "id": "h2", "type": "perspective", "text": "如果我是那個時代的人，我會……" },
+      { "id": "h3", "type": "compare", "text": "這件事跟現在的生活比起來，不一樣的地方是……" },
+      { "id": "h4", "type": "why", "text": "我一直想不通，為什麼當時的人會……" },
+      { "id": "h5", "type": "connect", "text": "這讓我想到之前學過或看過的……，它們的相同點是……" },
+      { "id": "h6", "type": "opinion", "text": "我覺得老師說的……有道理（或不太同意），因為……" }
+    ],
+    "math_science": [
+      { "id": "m1", "type": "discover", "text": "我發現了一個規律：……" },
+      { "id": "m2", "type": "daily_life", "text": "這個原理可以用在……，例如……" },
+      { "id": "m3", "type": "predict", "text": "我猜如果把……改成……，結果會……" },
+      { "id": "m4", "type": "stuck", "text": "今天我最卡住的地方是……，後來我是用……想通的（或還沒想通）" },
+      { "id": "m5", "type": "explain", "text": "如果要用一句話跟弟弟解釋今天學的，我會說……" },
+      { "id": "m6", "type": "curious", "text": "我還想試試看……，看會不會……" }
+    ],
+    "project": [
+      { "id": "p1", "type": "progress", "text": "這週我完成了……，下次我想做……" },
+      { "id": "p2", "type": "difficulty", "text": "我遇到的困難是……，我打算用……的方法試試看" },
+      { "id": "p3", "type": "discover", "text": "我查資料時發現……，這跟我原本想的……" },
+      { "id": "p4", "type": "adjust", "text": "我想改變原本的做法，因為……" },
+      { "id": "p5", "type": "gain", "text": "做這個專題，我學到最有用的一件事是……" },
+      { "id": "p6", "type": "next_question", "text": "接下來我最想弄清楚的問題是……" }
+    ],
+    "general": [
+      { "id": "g1", "type": "fun", "text": "今天最好玩（或最有趣）的是……" },
+      { "id": "g2", "type": "unclear", "text": "今天有一件事我聽不太懂，是……" },
+      { "id": "g3", "type": "ask_teacher", "text": "如果可以問老師一個問題，我會問……" },
+      { "id": "g4", "type": "rating", "text": "今天的課，我給自己＿＿顆星，因為……" }
+    ],
+    "lowPressure": [
+      { "id": "l1", "type": "least_dislike", "text": "這個主題裡我最不討厭的是……" },
+      { "id": "l2", "type": "change_one_thing", "text": "如果我可以改一個地方，我會……" },
+      { "id": "l3", "type": "honest", "text": "這週有點……，因為……" }
+    ]
+  },
+  "starterRules": {
+    "showPerRound": 3,
+    "preferDifferentTypes": true,
+    "allowRefresh": true,
+    "fallbackPools": ["general", "lowPressure"],
+    "lowPressureTriggerReasonIds": ["not_interested", "dislike", "too_hard"],
+    "allowCustomStarters": true
+  }
+}

@@ -11,6 +11,7 @@ import { isValidPin } from '../utils/crypto.js';
 import { needOnline } from '../net.js';
 import { REVIEW_TYPES, WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordList, loadListWords, saveListWords, parseWords, wordsToText } from '../store/words.js';
 import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
+import { journalSettings, CATEGORIES } from '../utils/journal.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const wdLabel = (wds) => {
@@ -36,6 +37,7 @@ export function mountSettings(el) {
     <section class="card"><h2>📖 每日單字</h2>
       <p class="muted small">每天學幾個新單字，並依遺忘曲線自動安排複習（答對後隔 1、2、4、7、15、30、60 天再考）。補習班單字會優先學，考前一天和當天整份複習。</p>
       <div id="sWordLists"></div><hr><div id="sWordCfg"></div></section>
+    <section class="card"><h2>📝 課後小記</h2><div id="sJournal"></div></section>
     <section class="card"><h2>🎁 兌換項目</h2>
       <p class="muted small">孩子申請兌換時會先預留點數，媽媽核可後才正式扣點。</p>
       <div id="sRewards"></div></section>
@@ -333,6 +335,35 @@ export function mountSettings(el) {
     } catch (e) { showError(e, '儲存字庫'); }
   }
 
+  // ---------- 課後小記 ----------
+  const jRow = (c) => `<div class="jsched-row">
+      <select class="select" name="wd">${WD_ORDER.map((d) => `<option value="${d}" ${Number(c.weekday) === d ? 'selected' : ''}>週${WEEKDAYS[d]}</option>`).join('')}</select>
+      <select class="select" name="cat">${CATEGORIES.map((x) => `<option value="${x.id}" ${c.category === x.id ? 'selected' : ''}>${x.emoji} ${x.label}</option>`).join('')}</select>
+      <input name="cnt" type="number" inputmode="numeric" min="1" max="9" value="${Number(c.count) || 1}" aria-label="堂數">
+      <button type="button" class="btn btn-sm btn-ghost" data-act="jRemove" aria-label="刪除">✕</button></div>`;
+  function drawJournal() {
+    const c = journalSettings(state.settings);
+    $('#sJournal').innerHTML = `
+      <form id="journalForm">
+        <div class="field"><span>誰要寫課後小記</span>${chipChecks('kids', KIDS.map((k) => ({ value: k, label: memberName(k) })), c.kids)}</div>
+        ${KIDS.map((k) => `<div class="field jsched" data-kid="${k}"><span>${esc(memberName(k))}的課表（星期・類別・堂數）</span>
+          <div class="jsched-rows">${(c.schedule[k] || []).map(jRow).join('')}</div>
+          <button type="button" class="btn btn-sm btn-ghost" data-act="jAdd">＋ 新增一堂</button></div>`).join('')}
+        <div class="field-row">
+          <label class="field"><span>基本版點數</span><input name="basic" type="number" inputmode="numeric" min="0" max="99" value="${c.points.basic}"></label>
+          <label class="field"><span>進階版</span><input name="advanced" type="number" inputmode="numeric" min="0" max="99" value="${c.points.advanced}"></label>
+          <label class="field"><span>完整版</span><input name="full" type="number" inputmode="numeric" min="0" max="99" value="${c.points.full}"></label>
+        </div>
+        <div class="field-row">
+          <label class="field"><span>補寫少給幾點</span><input name="lateDeduct" type="number" inputmode="numeric" min="0" max="99" value="${c.lateDeduct}"></label>
+          <label class="field"><span>溫和提醒時間</span>${timeSelect('reminderTime', c.reminderTime)}</label>
+        </div>
+        <div class="field"><span>輕鬆版的日子（只顯示基本版，可按「想多寫一點」）</span>${chipChecks('light', WD_ORDER.map((d) => ({ value: String(d), label: '週' + WEEKDAYS[d] })), (c.lightWeekdays || []).map(String))}</div>
+        <p class="field-hint">基本＝心情＋學到；進階＝再寫「有趣的是」或「我想知道」其中一項；完整＝兩項都寫。點數只看有沒有填，送出後自動入帳，不用核可。補寫可以補同一週的上課日。</p>
+        <button class="btn btn-primary" type="submit">儲存課後小記設定</button>
+      </form>`;
+  }
+
   // ---------- 通知 ----------
   const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
   const timeSelect = (name, val) => `<select class="select" name="${name}">${HALF_HOURS.map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
@@ -358,6 +389,8 @@ export function mountSettings(el) {
         ${sw('kid.carry', n.kid.carry, '⏰ 放學後提醒：昨天沒完成、順延到今天的作業')}
         ${sw('kid.due', n.kid.due, '📅 放學後提醒：2 天內到期的作業')}
         ${sw('kid.timed', n.kid.timed, '⏰ 指定時間的事項：時間前 30 分鐘提醒')}
+        ${sw('kid.journal', n.kid.journal, '📝 課後小記：上課日還沒寫時溫和提醒一次')}
+        ${sw('kid.journalComment', n.kid.journalComment, '💬 媽媽回應了課後小記')}
         <div class="field-row" style="margin-top:12px">
           <label class="field"><span>放學後提醒時間</span>${timeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
           <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
@@ -394,6 +427,20 @@ export function mountSettings(el) {
         await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99), order: d.order === 'list' ? 'list' : 'random',
           types: new FormData(f).getAll('types').filter((t) => REVIEW_TYPES.includes(t)) } });
         toast('單字設定已儲存', 'ok');
+      } else if (f.id === 'journalForm') {
+        const fd = new FormData(f);
+        const n = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
+        const schedule = {};
+        for (const blk of f.querySelectorAll('.jsched')) {
+          schedule[blk.dataset.kid] = [...blk.querySelectorAll('.jsched-row')].map((r) => ({
+            weekday: Number(r.querySelector('[name=wd]').value), category: r.querySelector('[name=cat]').value, count: n(r.querySelector('[name=cnt]').value, 1, 9)
+          }));
+        }
+        await saveSettings({ journal: { ...(state.settings.journal || {}),
+          kids: fd.getAll('kids').filter((k) => KIDS.includes(k)), schedule,
+          points: { basic: n(d.basic, 0, 99), advanced: n(d.advanced, 0, 99), full: n(d.full, 0, 99) },
+          lateDeduct: n(d.lateDeduct, 0, 99), reminderTime: d.reminderTime, lightWeekdays: fd.getAll('light').map(Number) } });
+        toast('課後小記設定已儲存', 'ok');
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
         const n = notifySettings();
@@ -435,6 +482,8 @@ export function mountSettings(el) {
           $('#subjRows .subj-row:last-child input[name=name]').focus();
           break;
         case 'removeSubject': b.closest('.subj-row').remove(); break;
+        case 'jAdd': b.closest('.jsched').querySelector('.jsched-rows').insertAdjacentHTML('beforeend', jRow({ weekday: 1, category: 'humanities', count: 1 })); break;
+        case 'jRemove': b.closest('.jsched-row').remove(); break;
         case 'newRoutine': editRoutine(null); break;
         case 'editRoutine': editRoutine(routines.find((r) => r.id === b.dataset.id)); break;
         case 'rejectReq': await rejectPair(b.dataset.id); break;
@@ -465,7 +514,7 @@ export function mountSettings(el) {
     } catch (err) { showError(err); }
   });
 
-  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify(); drawWordCfg(); drawWordLists();
+  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify(); drawWordCfg(); drawWordLists(); drawJournal();
   mountPushCard($('#sPushDevice'));
   const unsubs = [
     watchRewards((l) => { rewards = l; drawRewards(); }, (e) => showError(e, '讀取兌換項目')),

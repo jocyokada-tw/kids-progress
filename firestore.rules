@@ -157,9 +157,32 @@ service cloud.firestore {
         allow list: if isMom() || canKid(resource.data.kidId);
         allow create: if isMom()
           && request.resource.data.amount is int
-          && request.resource.data.type in ['task', 'bonus', 'adjust', 'redeem']
+          && request.resource.data.type in ['task', 'bonus', 'adjust', 'redeem', 'classNote', 'weeklyJournal']
           && request.resource.data.kidId is string;
         allow update, delete: if false;
+      }
+
+      // ---------- 課後小記：classNotes/{kidId}_{date} ----------
+      // 孩子寫自己的；點數相關欄位（level, awarded, onTheDay）只有伺服器能寫，媽媽留言只有媽媽能寫
+      function noteServerKeys() { return ['level', 'awarded', 'onTheDay']; }
+      function noteKidKeys() {
+        return ['kidId', 'date', 'updatedAt', 'skipped', 'memorable', 'topic', 'mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer',
+                'learned', 'interesting', 'question', 'projectProgress', 'extraCategory', 'extraText'];
+      }
+      match /classNotes/{nid} {
+        allow get: if paired() && (resource == null || isMom() || canKid(resource.data.kidId));
+        allow list: if isMom() || canKid(resource.data.kidId);
+        allow create: if canKid(request.resource.data.kidId)
+          && nid == request.resource.data.kidId + '_' + request.resource.data.date
+          && isDate(request.resource.data.date)
+          && request.resource.data.keys().hasOnly(noteKidKeys());
+        allow update: if (isMom()
+              && !request.resource.data.diff(resource.data).affectedKeys().hasAny(noteServerKeys().concat(['kidId', 'date'])))
+          || (canKid(resource.data.kidId)
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(noteKidKeys())
+              && request.resource.data.kidId == resource.data.kidId
+              && request.resource.data.date == resource.data.date);
+        allow delete: if isMom();
       }
 
       // ---------- 課程（非學校行程，沒有點數）：媽媽設定，小孩只能看 ----------

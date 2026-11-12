@@ -4,7 +4,7 @@ import { todayStr } from '../utils/date.js';
 
 // 點數流水帳：只新增、不修改、不刪除。目前點數 = 所有紀錄 amount 的總和。
 // type: task（完成項目）| bonus（全部完成獎勵）| adjust（媽媽手動調整）| redeem（兌換，第二階段）
-export const LEDGER_TYPES = { task: '完成項目', bonus: '額外獎勵', adjust: '手動調整', redeem: '兌換' };
+export const LEDGER_TYPES = { task: '完成項目', bonus: '額外獎勵', adjust: '手動調整', redeem: '兌換', classNote: '課後小記', weeklyJournal: '記事錄整理' };
 
 export function watchLedger(kidId, cb, onErr) {
   const q = query(fcol('ledger'), where('kidId', '==', kidId));

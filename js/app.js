@@ -14,11 +14,12 @@ import { mountPoints } from './views/points.js';
 import { mountSettings } from './views/settings.js';
 import { mountMessages } from './views/messages.js';
 import { mountWords } from './views/words.js';
+import { mountJournal } from './views/journal.js';
 import { initNet, showUpdateBar } from './net.js';
 import { refreshPushToken } from './push.js';
 
 const appEl = document.getElementById('app');
-const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, points: mountPoints, settings: mountSettings };
+const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, points: mountPoints, settings: mountSettings };
 
 let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
 let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }
@@ -44,7 +45,7 @@ function startFamilyWatchers() {
 function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; state.settingsReady = false; }
 
 /** 名字、頭像、顏色改變時，畫面要重畫 */
-const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null);
+const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null) + JSON.stringify(state.settings.journal || null);
 
 let devUnsub = null;
 function watchDevice(uid) {
