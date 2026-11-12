@@ -94,7 +94,7 @@ export function mountSettings(el) {
       <div class="seg">${KIDS.map((k) => `<button class="${k === routineKid ? 'active' : ''}" data-act="rkid" data-kid="${k}">${esc(memberName(k))}</button>`).join('')}</div>
       ${routines === null ? '<p class="empty">載入中…</p>' : routines.length ? `<ul class="rows">${routines.map((r) => `
         <li><button class="row-btn" data-act="editRoutine" data-id="${r.id}">
-          <span class="grow"><strong>${esc(r.title)}</strong><br><span class="muted small">${wdLabel(r.weekdays || [])}</span></span>
+          <span class="grow"><strong>${esc(r.title)}</strong><br><span class="muted small">${wdLabel(r.weekdays || [])}${r.dueTime ? `・⏰ ${esc(r.dueTime)} 前` : ''}</span></span>
           <span class="pts">+${r.points}</span></button></li>`).join('')}</ul>` : '<p class="empty">還沒有固定事項</p>'}
       <button class="btn btn-primary" data-act="newRoutine">＋ 新增固定事項</button>`;
   }
@@ -105,7 +105,8 @@ export function mountSettings(el) {
       html: `
         <label class="field"><span>事項</span><input name="title" maxlength="60" value="${esc(r?.title || '')}" placeholder="例如：刷牙、整理書包"></label>
         <label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${r?.points ?? 1}"></label>
-        <div class="field"><span>哪幾天要做？</span>${chipChecks('weekdays', WD_ORDER.map((d) => ({ value: String(d), label: WEEKDAYS[d] })), (r?.weekdays || [1, 2, 3, 4, 5, 6, 0]).map(String))}</div>`,
+        <div class="field"><span>哪幾天要做？</span>${chipChecks('weekdays', WD_ORDER.map((d) => ({ value: String(d), label: WEEKDAYS[d] })), (r?.weekdays || [1, 2, 3, 4, 5, 6, 0]).map(String))}</div>
+        <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc(r?.dueTime || '')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>`,
       buttons: [...(r ? [{ id: 'delete', label: '刪除', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
       validate: (id, d) => {
         if (id !== 'ok') return null;
@@ -121,7 +122,7 @@ export function mountSettings(el) {
       } else if (res.id === 'ok') {
         await saveRoutine(r?.id, routineKid, {
           title: res.data.title, points: Math.round(Number(res.data.points)),
-          weekdays: res.data.weekdays.map(Number), order: r?.order ?? (routines?.length || 0)
+          weekdays: res.data.weekdays.map(Number), order: r?.order ?? (routines?.length || 0), dueTime: res.data.dueTime || ''
         });
         toast('已儲存', 'ok');
       }
@@ -356,6 +357,7 @@ export function mountSettings(el) {
         ${sw('kid.daily', n.kid.daily, '🌙 每日提醒：今天還沒完成的項目')}
         ${sw('kid.carry', n.kid.carry, '⏰ 放學後提醒：昨天沒完成、順延到今天的作業')}
         ${sw('kid.due', n.kid.due, '📅 放學後提醒：2 天內到期的作業')}
+        ${sw('kid.timed', n.kid.timed, '⏰ 指定時間的事項：時間前 30 分鐘提醒')}
         <div class="field-row" style="margin-top:12px">
           <label class="field"><span>放學後提醒時間</span>${timeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
           <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>

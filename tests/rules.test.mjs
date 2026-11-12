@@ -360,3 +360,20 @@ test('有期限的本週進度：小孩只能排在期限當天或之前', async
   await assertFails(updateDoc(ref, { date: '2026-11-13', updatedAt: serverTimestamp() }));
   await assertSucceeds(updateDoc(ref, { date: '2026-11-12', updatedAt: serverTimestamp() }));
 });
+
+test('指定完成時間：小孩補建的項目時間必須和來源一致；送出時間由伺服器決定', async () => {
+  await env.withSecurityRulesDisabled(async (c) => {
+    const d = c.firestore();
+    await setDoc(doc(d, F, 'routines/dish'), { kidId: 'kidA', title: '洗餐碗', points: 2, weekdays: [0, 1, 2, 3, 4, 5, 6], active: true, dueTime: '18:30' });
+  });
+  const d = db('a');
+  const base = kidItem({ sourceId: 'dish', title: '洗餐碗', points: 2 });
+  await assertFails(setDoc(doc(d, F, 'items/kidA_2026-11-08_dish'), base));                          // 少了 dueTime（想躲掉時間）
+  await assertFails(setDoc(doc(d, F, 'items/kidA_2026-11-08_dish'), { ...base, dueTime: '23:59' }));  // 自己改時間
+  await assertSucceeds(setDoc(doc(d, F, 'items/kidA_2026-11-08_dish'), { ...base, dueTime: '18:30' }));
+  const ref = doc(d, F, 'items/kidA_2026-11-08_dish');
+  const { Timestamp } = await import('firebase/firestore');
+  await assertFails(updateDoc(ref, { done: true, doneAt: Timestamp.fromDate(new Date('2026-11-08T09:00:00Z')), review: 'pending' }));  // 偽造送出時間
+  await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
+  await assertFails(updateDoc(ref, { dueTime: '' }));
+});

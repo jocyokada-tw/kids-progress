@@ -8,8 +8,8 @@ export function watchRoutines(kidId, cb, onErr) {
     .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || tsMillis(a.createdAt) - tsMillis(b.createdAt))), onErr);
 }
 
-export function saveRoutine(id, kidId, { title, points, weekdays, order }) {
-  const data = { kidId, title, points, weekdays, order, active: true };
+export function saveRoutine(id, kidId, { title, points, weekdays, order, dueTime }) {
+  const data = { kidId, title, points, weekdays, order, dueTime: dueTime || '', active: true };
   if (id) return updateDoc(fdoc('routines', id), data);
   return addDoc(fcol('routines'), { ...data, createdAt: serverTimestamp() });
 }

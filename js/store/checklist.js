@@ -5,6 +5,7 @@ import { watchTasksOnDate } from './tasks.js';
 import { todayStr, weekday } from '../utils/date.js';
 import { state } from '../state.js';
 import { watchWordLists, WORD_DEFAULTS } from './words.js';
+import { isLateDone, latePoints, taipeiStamp, deadlineOf } from '../utils/timed.js';
 
 // 每日清單項目：items/{kidId}_{date}_{sourceId}
 // 由「當天已確認的進度」＋「符合星期的固定事項」自動產生。文件 ID 固定，所以不會重複產生。
@@ -18,9 +19,9 @@ function expectedFor(kidId, date, routines, tasks, hasWords) {
   const wd = weekday(date);
   const list = [
     ...routines.filter((r) => r.active !== false && (r.weekdays || []).includes(wd))
-      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '' })),
+      .map((r, i) => ({ sourceType: 'routine', sourceId: r.id, title: r.title, points: r.points, order: i, subject: '', dueTime: r.dueTime || '' })),
     ...tasks.filter((t) => t.status === 'approved')
-      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '', carriedFrom: (t.carriedFrom || []).slice(-1)[0] || '', due: t.due || '' })),
+      .map((t, i) => ({ sourceType: 'task', sourceId: t.id, title: t.title, points: t.points, order: 1000 + i, subject: t.subject || '', carriedFrom: (t.carriedFrom || []).slice(-1)[0] || '', due: t.due || '', dueTime: t.dueTime || '' })),
     // 每日單字：有字庫的小孩，當天自動多一項（只在當天產生）
     ...(hasWords && date === todayStr() ? [{ sourceType: 'words', sourceId: 'words', title: WORDS_TITLE, points: wordPoints(), order: 500, subject: '' }] : [])
   ];
@@ -34,6 +35,7 @@ async function createItem(id, kidId, date, e) {
     if (s.exists()) return;
     tx.set(ref, {
       kidId, date, sourceType: e.sourceType, sourceId: e.sourceId, title: e.title, points: e.points, order: e.order, subject: e.subject,
+      ...(e.dueTime ? { dueTime: e.dueTime } : {}),
       done: false, doneAt: null, review: 'none', returnNote: '', createdAt: serverTimestamp()
     });
   });
@@ -60,7 +62,8 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
       .sort((a, b) => (a.order ?? 0) - (b.order ?? 0) || a.title.localeCompare(b.title));
     // 「全部完成」的判斷以畫面上看到的清單為準：每個應該有的項目都已建立而且已核可
     const have0 = new Map(items.map((it) => [it.id, it]));
-    const complete = visible.length > 0 && visible.every((it) => it.review === 'approved')
+    // 指定時間的事項逾時才完成，當天就不算全部完成
+    const complete = visible.length > 0 && visible.every((it) => it.review === 'approved' && !isLateDone(it))
       && [...expected.keys()].every((id) => have0.get(id)?.review === 'approved');
     onItems(visible, complete);
     if (!isPastOrToday) return;
@@ -84,9 +87,9 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
         continue;
       }
       if (it.missed && !tried.has('r' + it.id)) { tried.add('r' + it.id); updateDoc(fdoc('items', it.id), { missed: false }).catch(onError); }
-      if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '')) {
-        const key = `u${it.id}|${e.title}|${e.points}|${e.order}|${e.subject}`;
-        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order, subject: e.subject }).catch(onError); }
+      if (e.title !== it.title || e.points !== it.points || e.order !== it.order || e.subject !== (it.subject || '') || (e.dueTime || '') !== (it.dueTime || '')) {
+        const key = `u${it.id}|${e.title}|${e.points}|${e.order}|${e.subject}|${e.dueTime}`;
+        if (!tried.has(key)) { tried.add(key); updateDoc(fdoc('items', it.id), { title: e.title, points: e.points, order: e.order, subject: e.subject, dueTime: e.dueTime || '' }).catch(onError); }
       }
     }
   };
@@ -148,6 +151,9 @@ export async function approveItem(id) {
     const it = s.data();
     if (it.review === 'approved') return;
     const l = await tx.get(lref);
+    // 指定時間後才送出：點數減半
+    const late = !!deadlineOf(it) && taipeiStamp(it.doneAt || new Date()) > deadlineOf(it);
+    const amount = late ? latePoints(it.points) : it.points;
     // 進度入帳後鎖定日期（本週進度不能再改天）
     const tref = it.sourceType === 'task' ? fdoc('tasks', it.sourceId) : null;
     const t = tref ? await tx.get(tref) : null;
@@ -157,14 +163,14 @@ export async function approveItem(id) {
       const sess = await tx.get(fdoc('wordSessions', `${it.kidId}_${it.date}`));
       wordBonus = sess.exists() && sess.data().finished && sess.data().perfect && !(await tx.get(bref)).exists();
     }
-    tx.update(ref, { done: true, review: 'approved', returnNote: '', approvedAt: serverTimestamp() });
+    tx.update(ref, { done: true, review: 'approved', returnNote: '', approvedAt: serverTimestamp(), late, awarded: amount });
     if (t && t.exists()) tx.update(tref, { itemApproved: true });
     if (wordBonus) {
       tx.set(bref, { kidId: it.kidId, amount: perfectBonus, type: 'bonus', title: '每日單字一次全對 🎯', date: it.date, refId: id, createdAt: serverTimestamp(), createdBy: 'mom' });
     }
     if (!l.exists()) {
       tx.set(lref, {
-        kidId: it.kidId, amount: it.points, type: 'task', title: it.title, date: it.date,
+        kidId: it.kidId, amount, type: 'task', title: late ? `${it.title}（逾時，點數減半）` : it.title, date: it.date,
         refId: id, createdAt: serverTimestamp(), createdBy: 'mom'
       });
     }

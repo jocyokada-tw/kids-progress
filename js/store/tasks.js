@@ -19,7 +19,7 @@ export function watchPendingTasks(kidId, cb, onErr) {
 }
 
 /** 一次在多個日期建立同樣的進度。媽媽建立的直接是 approved；小孩建立的是 pending、點數由媽媽決定 */
-export async function createTasks(kidId, dates, { title, note, points, subject, due }, asMom) {
+export async function createTasks(kidId, dates, { title, note, points, subject, due, dueTime }, asMom) {
   const b = writeBatch(db);
   for (const date of dates) {
     b.set(doc(fcol('tasks')), {
@@ -29,6 +29,7 @@ export async function createTasks(kidId, dates, { title, note, points, subject, 
       status: asMom ? 'approved' : 'pending',
       momNote: '',
       ...(asMom && due ? { due } : {}),
+      ...(asMom && dueTime ? { dueTime } : {}),
       createdAt: serverTimestamp(), updatedAt: serverTimestamp()
     });
   }
@@ -52,8 +53,8 @@ export function watchUnscheduled(kidId, cb, onErr) {
   return onSnapshot(q, (s) => cb(docs(s).filter((t) => t.kind === 'weekly' && t.status !== 'rejected').sort((a, b) => a.week.localeCompare(b.week) || tsMillis(a.createdAt) - tsMillis(b.createdAt))), onErr);
 }
 
-export const createWeeklyTask = (kidId, week, weekEnd, { title, note, points, subject, due }) => addDoc(fcol('tasks'), {
-  kidId, kind: 'weekly', week, weekEnd, date: '', title, note: note || '', subject: subject || '', points, due: due || '',
+export const createWeeklyTask = (kidId, week, weekEnd, { title, note, points, subject, due, dueTime }) => addDoc(fcol('tasks'), {
+  kidId, kind: 'weekly', week, weekEnd, date: '', title, note: note || '', subject: subject || '', points, due: due || '', dueTime: dueTime || '',
   createdBy: 'mom', status: 'approved', momNote: '', itemApproved: false,
   createdAt: serverTimestamp(), updatedAt: serverTimestamp()
 });

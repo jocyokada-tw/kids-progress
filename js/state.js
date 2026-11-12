@@ -17,7 +17,7 @@ export const DEFAULT_SUBJECTS = [
 // 通知預設值（和 functions/core.js 的 DEFAULT_NOTIFY 相同）
 export const DEFAULT_NOTIFY = {
   mom: { kidTask: true, itemDone: true, redeem: true, message: true, carry: true, due: true },
-  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true, due: true },
+  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true, due: true, timed: true },
   quietStart: '22:00', quietEnd: '07:00', dailyTime: '20:00', afterSchoolTime: '16:30'
 };
 export function notifySettings() {

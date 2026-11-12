@@ -5,7 +5,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fn from '../functions/index.js';
-import { db, runPeriodic, tokensFor, taipeiNow, inQuiet, carryOverDay, afterSchoolList } from '../functions/core.js';
+import { db, runPeriodic, tokensFor, taipeiNow, inQuiet, carryOverDay, afterSchoolList, timedSoon } from '../functions/core.js';
 import { ttsHandler, ttsId, DAILY_CAP } from '../functions/tts.js';
 
 const F = 'families/home';
@@ -329,4 +329,22 @@ test('過了期限還沒完成：照樣順延，期限當天結束時通知媽�
   await runPeriodic(new Date('2026-11-14T16:30:00Z'));   // 隔天又沒做：再順延，但不再發過期通知
   assert.equal((await db.doc(`${F}/tasks/p`).get()).data().date, '2026-11-15');
   assert.equal((await logs()).filter((m) => m.title.includes('過了期限')).length, 1);
+});
+
+// ---------- 指定完成時間 ----------
+test('指定時間前 30 分鐘提醒孩子；已送出的不提醒；每個時間只提醒一次', async () => {
+  await reset({ ...NO_QUIET, afterSchoolTime: '23:59', kid: { daily: false } });
+  await db.doc(`${F}/routines/dish`).set({ kidId: 'kidA', title: '洗餐碗', points: 2, weekdays: [4], active: true, dueTime: '18:30' });
+  await db.doc(`${F}/routines/bag`).set({ kidId: 'kidA', title: '整理書包', points: 1, weekdays: [4], active: true, dueTime: '18:15' });
+  await db.doc(`${F}/routines/other`).set({ kidId: 'kidA', title: '別天', points: 1, weekdays: [1], active: true, dueTime: '18:30' });
+  await db.doc(`${F}/tasks/t`).set({ kidId: 'kidA', date: '2026-11-12', title: '練琴', points: 2, status: 'approved', dueTime: '19:00' });
+  await db.doc(`${F}/items/kidA_2026-11-12_bag`).set({ kidId: 'kidA', date: '2026-11-12', sourceId: 'bag', done: true, review: 'pending' });
+  const now = (hm) => ({ date: '2026-11-12', hm, weekday: 4 });
+  assert.deepEqual((await timedSoon('home', 'kidA', now('18:00'))).map((x) => x.title), ['洗餐碗']);   // 書包已送出
+  assert.deepEqual((await timedSoon('home', 'kidA', now('18:30'))).map((x) => x.title), ['練琴']);
+  assert.deepEqual(await timedSoon('home', 'kidA', now('17:30')), []);
+  // 排程：17:30、18:00、18:30 各跑一次 → 洗餐碗、練琴各提醒一次
+  for (const z of ['09:30', '10:00', '10:30']) await runPeriodic(new Date(`2026-11-12T${z}:00Z`));
+  const l = (await logs()).filter((m) => m.tag === 'timed-kidA');
+  assert.deepEqual(l.map((m) => m.title).sort(), ['⏰ 18:30 前要完成：洗餐碗', '⏰ 19:00 前要完成：練琴']);
 });
