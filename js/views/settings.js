@@ -94,7 +94,7 @@ export function mountSettings(el) {
       <div class="seg">${KIDS.map((k) => `<button class="${k === routineKid ? 'active' : ''}" data-act="rkid" data-kid="${k}">${esc(memberName(k))}</button>`).join('')}</div>
       ${routines === null ? '<p class="empty">載入中…</p>' : routines.length ? `<ul class="rows">${routines.map((r) => `
         <li><button class="row-btn" data-act="editRoutine" data-id="${r.id}">
-          <span class="grow"><strong>${esc(r.title)}</strong><br><span class="muted small">${wdLabel(r.weekdays || [])}</span></span>
+          <span class="grow"><strong>${esc(r.title)}</strong><br><span class="muted small">${wdLabel(r.weekdays || [])}${r.dueTime ? `・⏰ ${esc(r.dueTime)} 前` : ''}</span></span>
           <span class="pts">+${r.points}</span></button></li>`).join('')}</ul>` : '<p class="empty">還沒有固定事項</p>'}
       <button class="btn btn-primary" data-act="newRoutine">＋ 新增固定事項</button>`;
   }
@@ -105,7 +105,8 @@ export function mountSettings(el) {
       html: `
         <label class="field"><span>事項</span><input name="title" maxlength="60" value="${esc(r?.title || '')}" placeholder="例如：刷牙、整理書包"></label>
         <label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${r?.points ?? 1}"></label>
-        <div class="field"><span>哪幾天要做？</span>${chipChecks('weekdays', WD_ORDER.map((d) => ({ value: String(d), label: WEEKDAYS[d] })), (r?.weekdays || [1, 2, 3, 4, 5, 6, 0]).map(String))}</div>`,
+        <div class="field"><span>哪幾天要做？</span>${chipChecks('weekdays', WD_ORDER.map((d) => ({ value: String(d), label: WEEKDAYS[d] })), (r?.weekdays || [1, 2, 3, 4, 5, 6, 0]).map(String))}</div>
+        <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc(r?.dueTime || '')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>`,
       buttons: [...(r ? [{ id: 'delete', label: '刪除', kind: 'danger' }] : [{ id: 'cancel', label: '取消' }]), { id: 'ok', label: '儲存', kind: 'primary' }],
       validate: (id, d) => {
         if (id !== 'ok') return null;
@@ -121,7 +122,7 @@ export function mountSettings(el) {
       } else if (res.id === 'ok') {
         await saveRoutine(r?.id, routineKid, {
           title: res.data.title, points: Math.round(Number(res.data.points)),
-          weekdays: res.data.weekdays.map(Number), order: r?.order ?? (routines?.length || 0)
+          weekdays: res.data.weekdays.map(Number), order: r?.order ?? (routines?.length || 0), dueTime: res.data.dueTime || ''
         });
         toast('已儲存', 'ok');
       }
@@ -273,13 +274,24 @@ export function mountSettings(el) {
         <button class="btn btn-primary" type="submit">儲存單字設定</button>
       </form>`;
   }
+  // 考試日已過的補習班單字收起來（每週新增一份，全部列出會很長）。它們不能刪：學過的字還要靠它們繼續複習
+  let showPastWordLists = false;
   function drawWordLists() {
-    $('#sWordLists').innerHTML = `
-      ${wordLists === null ? '<p class="empty">載入中…</p>' : wordLists.length ? `<ul class="rows">${wordLists.map((l) => `
+    const today = todayStr();
+    const isPast = (l) => l.kind === 'cram' && l.testDate && l.testDate < today;
+    const row = (l) => `
         <li><button class="row-btn" data-act="editWordList" data-id="${l.id}">
           <span class="grow"><strong>${esc(l.name)}</strong> <span class="tag">${l.kind === 'cram' ? '補習班' : '字庫'}</span><br>
             <span class="muted small">${(l.kids || []).length ? l.kids.map(memberName).join('、') : '<span class="tag tag-wait">尚未指定孩子</span>'}${l.kind === 'cram' && l.testDate ? `・${labelMD(l.testDate)} 考試` : ''}</span></span>
-          <span class="pts">${l.count || 0} 字</span></button></li>`).join('')}</ul>` : '<p class="empty">還沒有字庫</p>'}
+          <span class="pts">${l.count || 0} 字</span></button></li>`;
+    const current = (wordLists || []).filter((l) => !isPast(l));
+    const past = (wordLists || []).filter(isPast).sort((a, b) => b.testDate.localeCompare(a.testDate));
+    $('#sWordLists').innerHTML = `
+      ${wordLists === null ? '<p class="empty">載入中…</p>' : wordLists.length ? `<ul class="rows">${current.map(row).join('')}
+        ${past.length ? `<li><button class="row-btn" data-act="togglePastLists" aria-expanded="${showPastWordLists}">
+          <span class="grow"><strong>📚 考過的補習班單字</strong><br><span class="muted small">${past.length} 份・${past.reduce((a, l) => a + (l.count || 0), 0)} 字・仍會照常複習</span></span>
+          <span class="muted">${showPastWordLists ? '▲ 收起' : '▼ 展開'}</span></button></li>
+          ${showPastWordLists ? past.map(row).join('') : ''}` : ''}</ul>` : '<p class="empty">還沒有字庫</p>'}
       <div class="btn-row" style="justify-content:flex-start">
         <button class="btn btn-primary" data-act="newWordList" data-kind="cram">＋ 補習班單字</button>
         <button class="btn btn-ghost" data-act="newWordList" data-kind="general">＋ 字庫（Flyers 等）</button>
@@ -308,7 +320,7 @@ export function mountSettings(el) {
     });
     try {
       if (res.id === 'delete') {
-        if (await confirmDialog(`刪除字庫「${l.name}」？已學過的進度會保留。`, { danger: true, okLabel: '刪除' })) await archiveWordList(l.id);
+        if (await confirmDialog(`刪除字庫「${l.name}」？\n這份字庫裡學過的字之後就不會再出現在複習裡（學習紀錄會保留）。考過的補習班單字建議留著，畫面上會自動收起來。`, { danger: true, okLabel: '刪除' })) await archiveWordList(l.id);
         return;
       }
       if (res.id !== 'ok') return;
@@ -335,6 +347,7 @@ export function mountSettings(el) {
         ${sw('mom.redeem', n.mom.redeem, '🎁 孩子申請兌換')}
         ${sw('mom.message', n.mom.message, '💬 孩子的留言')}
         ${sw('mom.carry', n.mom.carry, '⏰ 孩子前一天沒完成、自動順延的作業（早上）')}
+        ${sw('mom.due', n.mom.due, '⚠️ 作業過了期限還沒完成（早上）')}
         <h3 class="small muted">孩子會收到</h3>
         ${sw('kid.taskReview', n.kid.taskReview, '✅ 進度被確認或退回（含建議）')}
         ${sw('kid.itemReview', n.kid.itemReview, '⭐ 點數入帳、被退回、額外獎勵')}
@@ -342,8 +355,11 @@ export function mountSettings(el) {
         ${sw('kid.message', n.kid.message, '💬 媽媽的留言')}
         ${sw('kid.weekly', n.kid.weekly, '📦 媽媽新增了本週進度')}
         ${sw('kid.daily', n.kid.daily, '🌙 每日提醒：今天還沒完成的項目')}
-        ${sw('kid.carry', n.kid.carry, '⏰ 前一天沒完成的作業已順延到今天（早上）')}
+        ${sw('kid.carry', n.kid.carry, '⏰ 放學後提醒：昨天沒完成、順延到今天的作業')}
+        ${sw('kid.due', n.kid.due, '📅 放學後提醒：2 天內到期的作業')}
+        ${sw('kid.timed', n.kid.timed, '⏰ 指定時間的事項：時間前 30 分鐘提醒')}
         <div class="field-row" style="margin-top:12px">
+          <label class="field"><span>放學後提醒時間</span>${timeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
           <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
         </div>
         <div class="field-row">
@@ -381,7 +397,7 @@ export function mountSettings(el) {
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
         const n = notifySettings();
-        const notify = { mom: {}, kid: {}, quietStart: fd.get('quietStart'), quietEnd: fd.get('quietEnd'), dailyTime: fd.get('dailyTime') };
+        const notify = { mom: {}, kid: {}, quietStart: fd.get('quietStart'), quietEnd: fd.get('quietEnd'), dailyTime: fd.get('dailyTime'), afterSchoolTime: fd.get('afterSchoolTime') };
         for (const g of ['mom', 'kid']) for (const k of Object.keys(n[g])) notify[g][k] = fd.get(`${g}.${k}`) === 'on';
         await saveSettings({ notify });
         toast('通知設定已儲存', 'ok');
@@ -409,6 +425,7 @@ export function mountSettings(el) {
       switch (b.dataset.act) {
         case 'rkid': routineKid = b.dataset.kid; subRoutines(); break;
         case 'newWordList': editWordList(null, b.dataset.kind); break;
+        case 'togglePastLists': showPastWordLists = !showPastWordLists; drawWordLists(); break;
         case 'editWordList': editWordList(wordLists.find((x) => x.id === b.dataset.id)); break;
         case 'newReward': editReward(null); break;
         case 'editReward': editReward(rewards.find((r) => r.id === b.dataset.id)); break;

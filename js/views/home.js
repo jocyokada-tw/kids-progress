@@ -3,8 +3,9 @@ import { esc, showError } from '../ui.js';
 import { go } from '../router.js';
 import { watchLedger } from '../store/ledger.js';
 import { watchPendingItems } from '../store/checklist.js';
-import { watchPendingTasks, watchUnscheduled } from '../store/tasks.js';
-import { todayStr, labelMD } from '../utils/date.js';
+import { watchPendingTasks, watchUnscheduled, watchDue } from '../store/tasks.js';
+import { getItemOnce } from '../store/checklist.js';
+import { todayStr, labelMD, addDays, dueTag } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
 import { mountEventCalendar } from './calendar.js';
 import { watchWordLists, watchSession } from '../store/words.js';
@@ -32,6 +33,7 @@ export function mountHome(el, { kid }) {
       <div id="momTodo"></div>
     </section>
     <section class="card" id="pushPrompt" hidden></section>
+    <section class="card due-card" id="dueCard" hidden></section>
     <section class="card" id="goal" hidden></section>
     <section class="card" id="wordsCard" hidden></section>
     <div class="grid-2">
@@ -88,6 +90,22 @@ export function mountHome(el, { kid }) {
     const b = e.target.closest('[data-go]');
     if (b) go(b.dataset.go);
   });
+
+  // 快到期的作業：2 天內到期、或已經過期還沒完成的
+  let dueSeq = 0;
+  unsubs.push(watchDue(kid, addDays(today, -30), addDays(today, 2), async (list) => {
+    const seq = ++dueSeq;
+    const rows = await Promise.all(list.map(async (t) => {
+      const it = t.date ? await getItemOnce(kid, t.date, t.id).catch(() => null) : null;
+      return { t, waiting: !!(it && (it.done || it.review === 'pending')) };
+    }));
+    if (seq !== dueSeq) return;
+    const c = $('#dueCard');
+    c.hidden = !rows.length;
+    c.innerHTML = rows.length ? `<h2>⏳ 快到期的作業</h2><ul class="rows">${rows.map(({ t, waiting }) => `
+      <li class="row"><span class="grow"><strong>${esc(t.title)}</strong><br>${dueTag(t.due, today)}
+        <span class="muted small">${waiting ? '✓ 已完成，等媽媽核可' : t.date ? `排在 ${labelMD(t.date)}` : '📦 還沒排日期'}</span></span></li>`).join('')}</ul>` : '';
+  }, (e) => showError(e, '讀取期限')));
 
   // 每日單字入口
   let hasWords = false, wordSession;

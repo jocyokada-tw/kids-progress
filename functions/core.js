@@ -12,11 +12,12 @@ export const db = getFirestore();
 
 // ---------- 設定 ----------
 export const DEFAULT_NOTIFY = {
-  mom: { kidTask: true, itemDone: true, redeem: true, message: true, carry: true },
-  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true },
+  mom: { kidTask: true, itemDone: true, redeem: true, message: true, carry: true, due: true },
+  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true, due: true, timed: true },
   quietStart: '22:00',
   quietEnd: '07:00',
-  dailyTime: '20:00'
+  dailyTime: '20:00',
+  afterSchoolTime: '16:30'
 };
 
 export async function loadSettings(fid) {
@@ -174,7 +175,7 @@ export async function carryOverDay(fid, day) {
         order: 1000, done: false, doneAt: null, review: 'none', returnNote: '', createdAt: FieldValue.serverTimestamp(), ...mark
       });
     }
-    (moved[d.kidId] ||= []).push({ title: d.title, to });
+    (moved[d.kidId] ||= []).push({ title: d.title, to, due: d.due || '', pastDue: !!d.due && d.due <= day });
     n++;
   }
   if (n) await batch.commit();
@@ -194,20 +195,101 @@ async function carryOver(fid, s, now) {
     for (const [k, list] of Object.entries(moved)) (all[k] ||= []).push(...list);
     await stateRef.set({ lastCarry: day }, { merge: true });
   }
+  // 孩子的提醒改在放學後（afterSchool）；這裡只通知媽媽（勿擾時段內會排到早上）
   for (const [kidId, list] of Object.entries(all)) {
-    const toToday = list.filter((x) => x.to === now.date);
+    const name = await kidName(fid, kidId);
     const overdue = list.filter((x) => !x.to);
     const names = list.slice(0, 3).map((x) => x.title).join('、') + (list.length > 3 ? ` 等 ${list.length} 項` : '');
-    await notify(fid, kidId, 'carry', {
-      title: `⏰ 昨天有 ${list.length} 項沒完成`,
-      body: `${names}${toToday.length ? '\n已經排到今天，加油！' : ''}${overdue.length ? `\n${overdue.length} 項本週進度過期了，請媽媽幫忙安排` : ''}`,
-      url: `#/k/${kidId}/checklist`, tag: `carry-${kidId}`
-    }, s, now);
     await notify(fid, 'mom', 'carry', {
-      title: `⏰ ${await kidName(fid, kidId)}昨天有 ${list.length} 項沒完成`,
-      body: `${names}${toToday.length ? `\n${toToday.length} 項已順延到今天` : ''}${overdue.length ? `\n${overdue.length} 項本週進度已逾期，需要你處理` : ''}`,
+      title: `⏰ ${name}昨天有 ${list.length} 項沒完成`,
+      body: `${names}${list.length - overdue.length ? `\n${list.length - overdue.length} 項已順延到今天` : ''}${overdue.length ? `\n${overdue.length} 項本週進度已逾期，需要你處理` : ''}`,
       url: `#/k/${kidId}/${overdue.length ? 'schedule' : 'checklist'}`, tag: `carry-${kidId}`
     }, s, now);
+    // 過了期限還沒完成（期限當天結束時通知一次；之後每天仍會順延）
+    const pastDue = list.filter((x) => x.pastDue && x.due === addDays(now.date, -1));
+    if (pastDue.length) {
+      await notify(fid, 'mom', 'due', {
+        title: `⚠️ ${name}有 ${pastDue.length} 項作業過了期限`,
+        body: pastDue.map((x) => `${x.title}（${md(x.due)} 截止）`).join('、') + '\n還沒完成，已順延到今天',
+        url: `#/k/${kidId}/checklist`, tag: `due-${kidId}`
+      }, s, now);
+    }
+  }
+}
+
+// ---------- 放學後提醒（孩子）：順延到今天的作業、2 天內到期的作業 ----------
+/** 這個孩子今天要特別提醒的作業 */
+export async function afterSchoolList(fid, kidId, today) {
+  const fam = db.doc(`families/${fid}`);
+  const [todaysAll, dueAll] = await Promise.all([
+    fam.collection('tasks').where('kidId', '==', kidId).where('date', '==', today).get(),
+    fam.collection('tasks').where('due', '>=', today).where('due', '<=', addDays(today, 2)).get()   // 單一欄位範圍，不需要複合索引
+  ]);
+  const todays = todaysAll.docs;
+  const dueSoon = dueAll.docs.filter((d) => d.data().kidId === kidId);
+  // 有排日期的，看那天的清單項目是不是已經勾選
+  const withDate = [...new Map([...todays, ...dueSoon].filter((d) => d.data().date).map((d) => [d.id, d])).values()];
+  const itemDocs = withDate.length ? await db.getAll(...withDate.map((d) => fam.collection('items').doc(`${kidId}_${d.data().date}_${d.id}`))) : [];
+  const done = new Set(itemDocs.filter((x) => x.exists && !x.data().missed && (x.data().done || ['pending', 'approved'].includes(x.data().review))).map((x) => x.data().sourceId));
+  const ok = (d) => d.data().status === 'approved' && !d.data().itemApproved && !done.has(d.id);
+  const carried = todays.filter((d) => ok(d) && (d.data().carriedFrom || []).length).map((d) => d.data().title);
+  const soon = dueSoon.filter((d) => ok(d))
+    .map((d) => ({ title: d.data().title, due: d.data().due })).sort((a, b) => a.due.localeCompare(b.due));
+  return { carried, soon };
+}
+
+async function afterSchool(fid, s, now) {
+  const stateRef = db.doc(`families/${fid}/meta/pushState`);
+  const st = (await stateRef.get()).data() || {};
+  if (st.lastAfterSchool === now.date || now.hm < (s.afterSchoolTime || '16:30')) return;
+  await stateRef.set({ lastAfterSchool: now.date }, { merge: true });
+  const left = (n) => (n === 0 ? '今天截止' : n === 1 ? '明天截止' : '後天截止');
+  for (const kidId of ['kidA', 'kidB']) {
+    const { carried, soon } = await afterSchoolList(fid, kidId, now.date);
+    const useCarry = s.kid.carry !== false && carried.length;
+    const useDue = s.kid.due !== false && soon.length;
+    if (!useCarry && !useDue) continue;
+    const lines = [];
+    if (useCarry) lines.push(`⏰ 昨天沒完成：${carried.slice(0, 3).join('、')}${carried.length > 3 ? ` 等 ${carried.length} 項` : ''}`);
+    if (useDue) lines.push(...soon.slice(0, 3).map((x) => `📅 ${x.title}（${left(Math.round((new Date(x.due) - new Date(now.date)) / 86400000))}）`));
+    await deliver(fid, kidId, {
+      title: useCarry && useDue ? '📚 今天要先完成的作業' : useCarry ? `⏰ 有 ${carried.length} 項昨天沒完成的作業` : `📅 有 ${soon.length} 項作業快到期了`,
+      body: lines.join('\n'), url: `#/k/${kidId}/checklist`, tag: `school-${kidId}`
+    });
+  }
+}
+
+// ---------- 指定完成時間：時間前 30 分鐘提醒孩子 ----------
+const toMin = (hm) => Number(hm.slice(0, 2)) * 60 + Number(hm.slice(3, 5));
+
+/** 指定時間落在「現在之後 30 分鐘內」、還沒送出的事項。排程每 30 分鐘跑一次，每個時間只會落在一次 */
+export async function timedSoon(fid, kidId, now) {
+  const fam = db.doc(`families/${fid}`);
+  const [routines, tasks] = await Promise.all([
+    fam.collection('routines').where('kidId', '==', kidId).get(),
+    fam.collection('tasks').where('kidId', '==', kidId).where('date', '==', now.date).get()
+  ]);
+  const inWindow = (t) => /^\d\d:\d\d$/.test(t || '') && toMin(t) > toMin(now.hm) && toMin(t) - toMin(now.hm) <= 30;
+  const cands = [
+    ...routines.docs.filter((d) => { const r = d.data(); return r.active !== false && (r.weekdays || []).includes(now.weekday) && inWindow(r.dueTime); }),
+    ...tasks.docs.filter((d) => d.data().status === 'approved' && inWindow(d.data().dueTime))
+  ];
+  if (!cands.length) return [];
+  const items = await db.getAll(...cands.map((d) => fam.collection('items').doc(`${kidId}_${now.date}_${d.id}`)));
+  return cands.filter((d, i) => { const x = items[i].exists ? items[i].data() : null; return !(x && (x.done || ['pending', 'approved'].includes(x.review))); })
+    .map((d) => ({ title: d.data().title, dueTime: d.data().dueTime }));
+}
+
+async function timedReminder(fid, s, now) {
+  if (s.kid.timed === false || inQuiet(now.hm, s.quietStart, s.quietEnd)) return;
+  for (const kidId of ['kidA', 'kidB']) {
+    const list = await timedSoon(fid, kidId, now);
+    if (!list.length) continue;
+    await deliver(fid, kidId, {
+      title: `⏰ ${list[0].dueTime} 前要完成：${list.map((x) => x.title).join('、')}`,
+      body: '準時完成才有全部點數，也才能拿今天的全部完成獎勵喔！',
+      url: `#/k/${kidId}/checklist`, tag: `timed-${kidId}`
+    });
   }
 }
 
@@ -219,12 +301,15 @@ async function dailyReminder(fid, s, now) {
   if (s.kid.daily === false) return;
   for (const kidId of ['kidA', 'kidB']) {
     const { left, unplanned } = await remainingToday(fid, kidId, now);
-    if (!left.length && !unplanned) continue;
+    const { soon } = s.kid.due !== false ? await afterSchoolList(fid, kidId, now.date) : { soon: [] };
+    const tomorrow = soon.filter((x) => x.due === addDays(now.date, 1));
+    if (!left.length && !unplanned && !tomorrow.length) continue;
     const parts = [];
     if (left.length) parts.push(left.slice(0, 3).map((x) => x.title).join('、') + (left.length > 3 ? ` 等 ${left.length} 項` : ''));
     if (unplanned) parts.push(`本週還有 ${unplanned} 項進度沒排日期`);
+    if (tomorrow.length) parts.push(`📅 明天截止：${tomorrow.map((x) => x.title).join('、')}`);
     await deliver(fid, kidId, {
-      title: left.length ? `🌙 今天還有 ${left.length} 項沒完成，加油！` : '📦 記得排本週進度',
+      title: left.length ? `🌙 今天還有 ${left.length} 項沒完成，加油！` : tomorrow.length ? '📅 明天有作業要交' : '📦 記得排本週進度',
       body: parts.join('\n'), url: left.length ? `#/k/${kidId}/checklist` : `#/k/${kidId}/schedule`, tag: `daily-${kidId}`
     });
   }
@@ -253,6 +338,8 @@ export async function runPeriodic(date = new Date()) {
     const s = await loadSettings(f.id);
     await carryOver(f.id, s, now);
     await flushQueue(f.id, s, now);
+    await afterSchool(f.id, s, now);
+    await timedReminder(f.id, s, now);
     await dailyReminder(f.id, s, now);
   }
 }

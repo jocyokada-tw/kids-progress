@@ -1,7 +1,8 @@
 import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints, confirmDialog } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus, removeItem } from '../store/checklist.js';
-import { todayStr, labelMD } from '../utils/date.js';
+import { todayStr, labelMD, dueTag } from '../utils/date.js';
+import { isLateDone, isOverdueNow, latePoints } from '../utils/timed.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
@@ -36,8 +37,8 @@ export function mountChecklistPanel(el, { kid, date }) {
     const total = items.length;
     const doneN = items.filter((i) => i.done || i.review === 'approved').length;
     const approvedAll = complete;
-    const earned = items.filter((i) => i.review === 'approved').reduce((s, i) => s + (i.points || 0), 0);
-    const waiting = items.filter((i) => i.review === 'pending').reduce((s, i) => s + (i.points || 0), 0);
+    const earned = items.filter((i) => i.review === 'approved').reduce((s, i) => s + (i.awarded != null ? i.awarded : i.points || 0), 0);
+    const waiting = items.filter((i) => i.review === 'pending').reduce((s, i) => s + (isLateDone(i) ? latePoints(i.points) : i.points || 0), 0);
     const bonus = Number(state.settings.bonusAllDone) || 0;
     const pendingCount = items.filter((i) => i.review === 'pending').length;
 
@@ -48,7 +49,9 @@ export function mountChecklistPanel(el, { kid, date }) {
       </div>
       <p class="checklist-sum">今天已入帳 <strong>${earned}</strong> 點${waiting ? `，待核可 <strong>${waiting}</strong> 點` : ''}</p>
       <ul class="items">${items.map(row).join('')}</ul>
-      ${bonus > 0 ? `<p class="bonus ${approvedAll ? 'bonus-done' : ''}">${approvedAll ? `🎉 全部完成！獲得額外獎勵 +${bonus}` : `🎁 全部完成並核可，再加 <strong>+${bonus}</strong> 點`}</p>` : (approvedAll ? '<p class="bonus bonus-done">🎉 全部完成！</p>' : '')}
+      ${items.some((i) => !i.missed && (isLateDone(i) || isOverdueNow(i)))
+        ? `<p class="bonus bonus-late">⏰ 有指定時間的事項沒有準時完成，今天沒有全部完成的獎勵</p>`
+        : bonus > 0 ? `<p class="bonus ${approvedAll ? 'bonus-done' : ''}">${approvedAll ? `🎉 全部完成！獲得額外獎勵 +${bonus}` : `🎁 全部完成並核可，再加 <strong>+${bonus}</strong> 點`}</p>` : (approvedAll ? '<p class="bonus bonus-done">🎉 全部完成！</p>' : '')}
       ${mom && pendingCount > 1 ? `<button class="btn btn-primary btn-block" data-act="approveAll">✓ 全部核可（${pendingCount} 項）</button>` : ''}`;
   }
 
@@ -77,12 +80,15 @@ export function mountChecklistPanel(el, { kid, date }) {
             ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${it.missed ? (it.carriedTo ? `<span class="tag tag-bad">⏰ ${it.carriedTo === 'overdue' ? '沒完成，本週進度已逾期' : `沒完成，已順延到 ${labelMD(it.carriedTo)}`}</span>` : '<span class="tag tag-bad">↪ 已改期／取消</span>') : STATUS[it.review] || ''}
             ${it.carriedFrom && !it.missed ? `<span class="tag tag-bad">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
+            ${it.due && !it.missed && it.review !== 'approved' ? dueTag(it.due) : ''}
+            ${it.dueTime && !it.missed ? (isLateDone(it) ? '<span class="tag tag-bad">⏰ 逾時完成・點數減半</span>' : isOverdueNow(it) ? `<span class="tag tag-bad">⏰ 已過 ${esc(it.dueTime)}</span>` : (it.done || it.review === 'approved') ? `<span class="tag tag-ok">⏰ 準時完成</span>` : `<span class="tag tag-wait">⏰ ${esc(it.dueTime)} 前完成</span>`) : ''}
           </div>
           ${it.missed && mom ? `<div class="item-note">${it.carriedTo ? '這天沒有完成' : '這一項改到其他天或取消了'}，還是算在這天的清單裡，所以這天不算全部完成。</div>` : ''}
           ${it.carriedFrom && !it.missed && !it.done && it.review !== 'approved' ? `<div class="item-note">⏰ ${labelMD(it.carriedFrom)} 沒完成的作業，今天記得要完成喔！</div>` : ''}
+          ${it.dueTime && !it.missed && isOverdueNow(it) ? `<div class="item-note">已經過了 ${esc(it.dueTime)}，現在完成只有一半點數（+${latePoints(it.points)}），今天也不能拿全部完成的獎勵。</div>` : ''}
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
         </div>
-        <span class="pts">+${it.points || 0}</span>
+        <span class="pts">${isLateDone(it) || (it.dueTime && isOverdueNow(it)) ? `+${it.review === 'approved' && it.awarded != null ? it.awarded : latePoints(it.points)} <s class="muted">${it.points || 0}</s>` : `+${it.points || 0}`}</span>
         ${mom && it.missed && it.review !== 'approved' ? `
           <div class="item-actions"><button class="btn btn-sm btn-ghost" data-act="removeMissed" data-id="${it.id}">從這天移除</button></div>` : ''}
         ${mom && it.review === 'pending' && !it.missed ? `
@@ -120,7 +126,7 @@ export function mountChecklistPanel(el, { kid, date }) {
           const done = !it.done;
           b.disabled = true;
           await setItemDone(it.id, done);
-          if (done) popPoints(b, `+${it.points || 0} ⭐`);
+          if (done) popPoints(b, `+${it.dueTime && isOverdueNow(it) ? latePoints(it.points) : it.points || 0} ⭐`);
           break;
         }
         case 'removeMissed':
@@ -133,7 +139,7 @@ export function mountChecklistPanel(el, { kid, date }) {
           needOnline('核可');
           b.disabled = true;
           await approveItem(it.id);
-          toast(`已核可：${it.title} +${it.points}`, 'ok');
+          toast(`已核可：${it.title} +${isLateDone(it) ? `${latePoints(it.points)}（逾時減半）` : it.points}`, 'ok');
           await afterApprove();
           break;
         case 'return': {

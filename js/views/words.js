@@ -87,18 +87,35 @@ export function mountWords(el, { kid }) {
   }
 
   // 每份字庫的進度：學完會顯示 🎉（孩子和媽媽都看得到）
+  // 每份字庫的進度：學完會顯示 🎉（孩子和媽媽都看得到）
+  // 考試日已過的補習班單字收成一列（每週都會新增一份，全部列出會很長），點了才展開
+  let showPastCram = false;
   function listsProgressHtml() {
     if (!lists || !lists.length) return '';
-    const rows = lists.map((l) => {
+    const stat = (l) => {
       const n = l.words.filter((x) => progress[wordKey(x.w)]).length;
       return { l, n, total: l.words.length, done: l.words.length > 0 && n >= l.words.length };
-    }).sort((a, b) => Number(a.done) - Number(b.done));
-    return `<section class="card"><h2>字庫進度</h2>
-      ${rows.map(({ l, n, total, done }) => `<div class="list-prog ${done ? 'list-done' : ''}">
-        <div><strong>${esc(l.name)}</strong> <span class="tag">${l.kind === 'cram' ? `補習班${l.testDate ? `・${labelMD(l.testDate)} 考` : ''}` : '字庫'}</span>
+    };
+    const isPast = (l) => l.kind === 'cram' && l.testDate && l.testDate < today;
+    const rows = lists.filter((l) => !isPast(l)).map(stat).sort((a, b) => Number(a.done) - Number(b.done));
+    const past = lists.filter(isPast).sort((a, b) => b.testDate.localeCompare(a.testDate)).map(stat);
+    const row = ({ l, n, total, done }, label) => `<div class="list-prog ${done ? 'list-done' : ''}">
+        <div><strong>${esc(l.name)}</strong> <span class="tag">${label}</span>
           ${done ? '<span class="tag tag-ok">🎉 學完了！</span>' : `<span class="muted small">${n}／${total}</span>`}</div>
-        <div class="goal-bar"><div class="goal-fill" style="width:${total ? Math.min(100, (n / total) * 100) : 0}%"></div></div></div>`).join('')}
-    </section>`;
+        <div class="goal-bar"><div class="goal-fill" style="width:${total ? Math.min(100, (n / total) * 100) : 0}%"></div></div></div>`;
+    const label = (l) => (l.kind === 'cram' ? `補習班${l.testDate ? `・${labelMD(l.testDate)} 考` : ''}` : '字庫');
+    let pastHtml = '';
+    if (past.length) {
+      const n = past.reduce((a, r) => a + r.n, 0);
+      const total = past.reduce((a, r) => a + r.total, 0);
+      const done = past.filter((r) => r.done).length;
+      pastHtml = `<button class="list-prog list-group ${done === past.length ? 'list-done' : ''}" data-act="togglePastCram" aria-expanded="${showPastCram}">
+          <div><strong>📚 以前的補習班單字</strong> <span class="tag">${past.length} 份</span>
+            <span class="muted small">${n}／${total}${done ? `・${done} 份學完` : ''}</span> <span class="muted">${showPastCram ? '▲' : '▼'}</span></div>
+          <div class="goal-bar"><div class="goal-fill" style="width:${total ? Math.min(100, (n / total) * 100) : 0}%"></div></div></button>
+        ${showPastCram ? `<div class="list-sub">${past.map((r) => row(r, label(r.l))).join('')}</div>` : ''}`;
+    }
+    return `<section class="card"><h2>字庫進度</h2>${rows.map((r) => row(r, label(r.l))).join('')}${pastHtml}</section>`;
   }
 
   // 學過的單字：隨時可以回來聽發音、看下次什麼時候複習
@@ -395,6 +412,7 @@ export function mountWords(el, { kid }) {
       case 'manage': go('/settings'); break;
       case 'voice': chooseVoice(); break;
       case 'toggleLearned': showAllLearned = !showAllLearned; draw(); break;
+      case 'togglePastCram': showPastCram = !showPastCram; draw(); break;
       case 'reset':
         confirmDialog(session.finished
           ? '重設今天的練習？\n今天新學的字會改回「還沒學過」，清單上的每日單字也會改回未完成，孩子可以重新做一次。\n（今天複習過的舊字，複習結果不會復原。）'

@@ -98,7 +98,9 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'updatedAt'])
               && isDate(request.resource.data.date)
               && request.resource.data.date >= resource.data.week
-              && request.resource.data.date <= resource.data.weekEnd);
+              && request.resource.data.date <= resource.data.weekEnd
+              // 有期限的話，只能排在期限當天或之前
+              && (resource.data.get('due', '') == '' || request.resource.data.date <= resource.data.due));
         allow delete: if isMom()
           || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending');
       }
@@ -115,12 +117,14 @@ service cloud.firestore {
         return (d.sourceType == 'routine'
                 && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.kidId == d.kidId
                 && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.points == d.points
-                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.active == true)
+                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.active == true
+                && get(/databases/$(database)/documents/families/$(fid)/routines/$(d.sourceId)).data.get('dueTime', '') == d.get('dueTime', ''))
           || (d.sourceType == 'task'
                 && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.kidId == d.kidId
                 && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.points == d.points
                 && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.date == d.date
-                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.status == 'approved')
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.status == 'approved'
+                && get(/databases/$(database)/documents/families/$(fid)/tasks/$(d.sourceId)).data.get('dueTime', '') == d.get('dueTime', ''))
           // 每日單字：點數必須等於媽媽在設定中訂的點數
           || (d.sourceType == 'words' && d.sourceId == 'words'
                 && get(/databases/$(database)/documents/families/$(fid)/meta/settings).data.words.points == d.points);
@@ -131,7 +135,7 @@ service cloud.firestore {
         allow list: if isMom() || canKid(resource.data.kidId);
         allow create: if isMom()
           || (canKid(request.resource.data.kidId)
-              && request.resource.data.keys().hasOnly(['kidId', 'date', 'sourceType', 'sourceId', 'title', 'subject', 'points', 'order', 'done', 'doneAt', 'review', 'returnNote', 'createdAt'])
+              && request.resource.data.keys().hasOnly(['kidId', 'date', 'sourceType', 'sourceId', 'title', 'subject', 'points', 'order', 'dueTime', 'done', 'doneAt', 'review', 'returnNote', 'createdAt'])
               && itemId == request.resource.data.kidId + '_' + request.resource.data.date + '_' + request.resource.data.sourceId
               && isDate(request.resource.data.date)
               && request.resource.data.done == false && request.resource.data.review == 'none'
@@ -141,7 +145,9 @@ service cloud.firestore {
           || (canKid(resource.data.kidId) && resource.data.review in ['none', 'returned']
               && resource.data.get('missed', false) != true
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done', 'doneAt', 'review'])
-              && request.resource.data.done == true && request.resource.data.review == 'pending');
+              && request.resource.data.done == true && request.resource.data.review == 'pending'
+              // 送出時間由伺服器決定（指定時間的事項用它判斷是否逾時，不能自己填）
+              && request.resource.data.doneAt == request.time);
         allow delete: if isMom();
       }
 

@@ -2,7 +2,7 @@ import { state, isMom, memberName, subjects, subjectOf, OTHER_SUBJECT } from '..
 import { esc, modal, toast, showError, chipChecks, chipRadios, subjectChips, confirmDialog } from '../ui.js';
 import { watchTasksRange, createTasks, kidUpdateTask, momSaveTask, deleteTask, watchUnscheduled, createWeeklyTask, scheduleWeekly, moveWeeklyTo, unscheduleWeekly } from '../store/tasks.js';
 import { watchEvents, eventsOn, saveEvent, skipEventOn, deleteEvent } from '../store/events.js';
-import { todayStr, addDays, weekStart, range, labelMD, weekday, isDateStr, WEEKDAYS } from '../utils/date.js';
+import { todayStr, addDays, weekStart, range, labelMD, weekday, isDateStr, WEEKDAYS, dueTag } from '../utils/date.js';
 import { TASK_STATUS } from './home.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -78,7 +78,7 @@ export function mountSchedule(el, { kid }) {
               <span class="event-time">🕒 ${esc(timeRange(e))}</span><span class="task-title">${esc(e.title)}</span></button></li>`).join('')}
             ${list.map((t) => `<li><button class="task task-${t.status}" style="--s:${esc(subjectOf(t.subject).color)}" data-act="open" data-id="${t.id}">
               <span class="task-title">${esc(t.title)}</span>
-              <span class="task-meta">${t.carriedFrom && t.carriedFrom.length ? `<span class="tag tag-bad">⏰ 順延${t.carryCount > 1 ? ` ${t.carryCount} 次` : ''}</span>` : ''}${t.kind === 'weekly' ? '<span class="tag">📦 本週</span>' : ''}<span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
+              <span class="task-meta">${t.dueTime ? `<span class="tag">⏰ ${esc(t.dueTime)} 前</span>` : ''}${t.due && !t.itemApproved && t.status === 'approved' ? dueTag(t.due, today) : ''}${t.carriedFrom && t.carriedFrom.length ? `<span class="tag tag-bad">⏰ 順延${t.carryCount > 1 ? ` ${t.carryCount} 次` : ''}</span>` : ''}${t.kind === 'weekly' ? '<span class="tag">📦 本週</span>' : ''}<span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
             </button></li>`).join('')}
           </ul>`}
       </div>`;
@@ -104,7 +104,7 @@ export function mountSchedule(el, { kid }) {
           <div class="tray-items">${ts.map((t) => `
             <button class="task tray-item ${isOverdue(t) ? 'is-overdue' : ''}" style="--s:${esc(subjectOf(t.subject).color)}" data-act="tray" data-id="${t.id}">
               <span class="task-title">${esc(t.title)}</span>
-              <span class="task-meta"><span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}</span>
+              <span class="task-meta"><span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.due ? dueTag(t.due, today) : ''}</span>
             </button>`).join('')}</div>`).join('')}
       </section>`;
   }
@@ -122,18 +122,21 @@ export function mountSchedule(el, { kid }) {
         <div class="field"><span>科目</span>${subjectChips('subject', subjectList(), '')}</div>
         <label class="field"><span>要做什麼？</span><input name="title" maxlength="60" placeholder="例如：數學習作 p.12–20"></label>
         <label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${state.settings.defaultTaskPoints ?? 1}"></label>
+        <label class="field"><span>期限（選填）</span><input name="due" type="date" value="${esc('')}"><span class="field-hint">有期限的作業會在期限前兩天開始提醒；過了期限還沒完成會通知媽媽。</span></label>
+        <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc('')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>
         <label class="field"><span>說明（選填）</span><textarea name="note" rows="2" maxlength="200"></textarea></label>`,
       buttons: [{ id: 'cancel', label: '取消' }, { id: 'more', label: '新增並繼續' }, { id: 'ok', label: '新增', kind: 'primary' }],
       validate: (id, d) => {
         if (id === 'cancel') return null;
         if (!d.title) return '請輸入內容';
         if (!(Number(d.points) >= 0)) return '點數必須是 0 以上的數字';
+        if (d.due && d.due < d.week) return '期限不能早於那一週的週一';
         return null;
       }
     });
     if (r.id === 'cancel') return;
     try {
-      await createWeeklyTask(kid, r.data.week, addDays(r.data.week, 6), { title: r.data.title, note: r.data.note, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0) });
+      await createWeeklyTask(kid, r.data.week, addDays(r.data.week, 6), { title: r.data.title, note: r.data.note, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0), due: r.data.due || '', dueTime: r.data.dueTime || '' });
       toast('已新增本週進度 📦', 'ok');
       if (r.id === 'more') newWeekly(r.data.week);
     } catch (e) { showError(e, '新增失敗'); }
@@ -141,13 +144,14 @@ export function mountSchedule(el, { kid }) {
 
   /** 選一天（本週進度用）。minDate 之前的日子不能選 */
   async function pickDay(t, minDate, extraButtons = []) {
-    const opts = weekDays(t).filter((d) => d >= minDate).map((d) => ({ value: d, label: labelMD(d) }));
-    if (!opts.length) { toast('這週已經過完了'); return { id: 'cancel' }; }
+    const opts = weekDays(t).filter((d) => d >= minDate && (!t.due || d <= t.due)).map((d) => ({ value: d, label: labelMD(d) }));
+    if (!opts.length) { toast(t.due && t.due < today ? '已經過了期限，請媽媽處理' : '這週已經過完了'); return { id: 'cancel' }; }
     return modal({
       title: `「${t.title}」要排在哪一天？`,
       html: `<p><span class="subj-tag" style="--s:${esc(subjectOf(t.subject).color)}">${esc(subjectOf(t.subject).name)}</span> ${t.points ? `<span class="pts">+${t.points}</span>` : ''}</p>
         ${t.note ? `<p class="pre muted">${esc(t.note)}</p>` : ''}
         ${chipRadios('date', opts, t.date && opts.some((o) => o.value === t.date) ? t.date : null)}
+        ${t.due ? `<p>${dueTag(t.due, today)}　只能排在期限當天或之前</p>` : ''}
         ${mom ? '' : '<p class="muted small">⚠️ 想清楚再排喔！排好之後不能自己改日期，只有媽媽可以退回重排。</p>'}`,
       buttons: [...extraButtons, { id: 'ok', label: '排好了', kind: 'primary' }],
       validate: (id, d) => (id === 'ok' && !d.date ? '請選一天' : null)
@@ -203,7 +207,9 @@ export function mountSchedule(el, { kid }) {
         <div class="field"><span>科目</span>${subjectChips('subject', subjectList(), '')}</div>
         <label class="field"><span>要做什麼？</span><input name="title" maxlength="60" required placeholder="例如：數學習作 p.12-13"></label>
         <div class="field"><span>哪幾天？（可多選）</span>${chipChecks('dates', dateOptions(), [date])}</div>
-        ${mom ? `<label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${state.settings.defaultTaskPoints ?? 1}"></label>` : ''}
+        ${mom ? `<label class="field"><span>完成可得點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${state.settings.defaultTaskPoints ?? 1}"></label>
+          <label class="field"><span>期限（選填）</span><input name="due" type="date" value="${esc('')}"><span class="field-hint">有期限的作業會在期限前兩天開始提醒；過了期限還沒完成會通知媽媽。</span></label>
+        <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc('')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>` : ''}
         <label class="field"><span>說明（選填）</span><textarea name="note" rows="2" maxlength="200"></textarea></label>`,
       buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: mom ? '新增' : '送出給媽媽確認', kind: 'primary' }],
       validate: (id, d) => {
@@ -216,7 +222,7 @@ export function mountSchedule(el, { kid }) {
     });
     if (r.id !== 'ok') return;
     try {
-      await createTasks(kid, r.data.dates, { title: r.data.title, note: r.data.note, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0) }, mom);
+      await createTasks(kid, r.data.dates, { title: r.data.title, note: r.data.note, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0), due: r.data.due || '', dueTime: r.data.dueTime || '' }, mom);
       toast(mom ? `已新增 ${r.data.dates.length} 天的進度` : '已送出，等媽媽確認 👍', 'ok');
     } catch (e) { showError(e, '新增失敗'); }
   }
@@ -264,6 +270,8 @@ export function mountSchedule(el, { kid }) {
           <label class="field"><span>點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${t.points || (t.status === 'pending' ? state.settings.defaultTaskPoints ?? 1 : 0)}"></label>
         </div>
         ${t.kind === 'weekly' ? `<p class="field-hint" style="margin:-6px 0 12px">📦 本週進度：日期可留空讓孩子自己排，限 ${labelMD(t.week)}～${labelMD(t.weekEnd)}</p>` : ''}
+        <label class="field"><span>期限（選填）</span><input name="due" type="date" value="${esc(t.due || '')}"><span class="field-hint">有期限的作業會在期限前兩天開始提醒；過了期限還沒完成會通知媽媽。</span></label>
+        <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc(t.dueTime || '')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>
         <label class="field"><span>說明</span><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></label>
         <label class="field"><span>💬 給孩子的建議（孩子看得到）</span><textarea name="momNote" rows="2" maxlength="200">${esc(t.momNote)}</textarea></label>`,
       buttons: [
@@ -280,6 +288,7 @@ export function mountSchedule(el, { kid }) {
           if (d.date && (!isDateStr(d.date) || d.date < t.week || d.date > t.weekEnd)) return '日期要在同一週內，或留空讓孩子自己排';
         } else if (!d.title || !isDateStr(d.date)) return '請填寫內容與日期';
         if (!(Number(d.points) >= 0)) return '點數必須是 0 以上的數字';
+        if (d.due && d.due < d.week) return '期限不能早於那一週的週一';
         return null;
       }
     });
@@ -294,7 +303,7 @@ export function mountSchedule(el, { kid }) {
         toast('已退回，孩子可以重新排日期');
         return;
       }
-      const patch = { title: r.data.title, date: r.data.date, note: r.data.note, momNote: r.data.momNote, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0) };
+      const patch = { title: r.data.title, date: r.data.date, note: r.data.note, momNote: r.data.momNote, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0), due: r.data.due || '', dueTime: r.data.dueTime || '' };
       await momSaveTask(t.id, patch, r.id === 'reject' ? 'rejected' : 'approved');
       toast(r.id === 'reject' ? '已退回' : '已確認', 'ok');
     } catch (e) { showError(e); }
