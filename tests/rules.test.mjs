@@ -154,6 +154,12 @@ test('小孩可以勾選，但不能自己核可', async () => {
   await assertSucceeds(updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: false, doneAt: null, review: 'returned', returnNote: 'x' }));
   await assertSucceeds(updateDoc(ref, { done: true, doneAt: serverTimestamp(), review: 'pending' }));
 });
+test('已改期／取消的項目，小孩不能勾選', async () => {
+  await updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { missed: true });
+  await assertFails(updateDoc(doc(db('a'), F, 'items/kidA_2026-11-08_t1'), { done: true, doneAt: serverTimestamp(), review: 'pending' }));
+  await assertFails(updateDoc(doc(db('a'), F, 'items/kidA_2026-11-08_t1'), { missed: false }));
+});
+
 test('已入帳的項目，小孩不能取消', async () => {
   await updateDoc(doc(db('mom'), F, 'items/kidA_2026-11-08_t1'), { done: true, review: 'approved' });
   await assertFails(updateDoc(doc(db('a'), F, 'items/kidA_2026-11-08_t1'), { done: false, doneAt: null, review: 'none' }));

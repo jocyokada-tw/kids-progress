@@ -1,7 +1,7 @@
 import { state, isMom, subjectOf } from '../state.js';
-import { esc, toast, showError, modal, popPoints } from '../ui.js';
-import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus } from '../store/checklist.js';
-import { todayStr } from '../utils/date.js';
+import { esc, toast, showError, modal, popPoints, confirmDialog } from '../ui.js';
+import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus, removeItem } from '../store/checklist.js';
+import { todayStr, labelMD } from '../utils/date.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
@@ -69,18 +69,23 @@ export function mountChecklistPanel(el, { kid, date }) {
   function row(it) {
     const checked = it.done || it.review === 'approved';
     return `
-      <li class="item item-${it.review}">
+      <li class="item item-${it.review} ${it.missed ? 'item-missed' : ''} ${it.carriedFrom && !it.missed && it.review !== 'approved' ? 'item-carried' : ''}">
         <button class="check ${checked ? 'checked' : ''}" data-act="toggle" data-id="${it.id}" aria-pressed="${checked}" aria-label="${esc(it.title)}">${checked ? '✓' : ''}</button>
         <div class="item-main">
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
             ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
-            ${STATUS[it.review] || ''}
+            ${it.missed ? (it.carriedTo ? `<span class="tag tag-bad">⏰ ${it.carriedTo === 'overdue' ? '沒完成，本週進度已逾期' : `沒完成，已順延到 ${labelMD(it.carriedTo)}`}</span>` : '<span class="tag tag-bad">↪ 已改期／取消</span>') : STATUS[it.review] || ''}
+            ${it.carriedFrom && !it.missed ? `<span class="tag tag-bad">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
           </div>
+          ${it.missed && mom ? `<div class="item-note">${it.carriedTo ? '這天沒有完成' : '這一項改到其他天或取消了'}，還是算在這天的清單裡，所以這天不算全部完成。</div>` : ''}
+          ${it.carriedFrom && !it.missed && !it.done && it.review !== 'approved' ? `<div class="item-note">⏰ ${labelMD(it.carriedFrom)} 沒完成的作業，今天記得要完成喔！</div>` : ''}
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
         </div>
         <span class="pts">+${it.points || 0}</span>
-        ${mom && it.review === 'pending' ? `
+        ${mom && it.missed && it.review !== 'approved' ? `
+          <div class="item-actions"><button class="btn btn-sm btn-ghost" data-act="removeMissed" data-id="${it.id}">從這天移除</button></div>` : ''}
+        ${mom && it.review === 'pending' && !it.missed ? `
           <div class="item-actions">
             <button class="btn btn-sm btn-ok" data-act="approve" data-id="${it.id}">核可</button>
             <button class="btn btn-sm btn-ghost" data-act="return" data-id="${it.id}">退回</button>
@@ -108,6 +113,7 @@ export function mountChecklistPanel(el, { kid, date }) {
       switch (b.dataset.act) {
         case 'toggle': {
           if (it.review === 'approved') return toast('已經入帳囉，不能取消 ✓');
+          if (it.missed) return toast(it.carriedTo && it.carriedTo !== 'overdue' ? `這一項已經順延到 ${labelMD(it.carriedTo)}，請在那天勾選` : '這一項已經改到其他天了');
           // 小孩送出後就鎖定，只有媽媽可以退回
           if (!mom && it.sourceType === 'words' && it.review !== 'pending') return go(`/k/${kid}/words`);
           if (!mom && it.review === 'pending') return toast('已經送出等媽媽核可囉 🔒 要取消的話請媽媽退回');
@@ -117,6 +123,12 @@ export function mountChecklistPanel(el, { kid, date }) {
           if (done) popPoints(b, `+${it.points || 0} ⭐`);
           break;
         }
+        case 'removeMissed':
+          if (await confirmDialog(`把「${it.title}」從 ${date} 的清單移除？\n移除後就不算在這天，如果其他項目都已核可，這天會算全部完成並發放額外獎勵。`, { okLabel: '移除', danger: true })) {
+            await removeItem(it.id);
+            toast('已移除');
+          }
+          break;
         case 'approve':
           needOnline('核可');
           b.disabled = true;

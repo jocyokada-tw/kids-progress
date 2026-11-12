@@ -12,8 +12,8 @@ export const db = getFirestore();
 
 // ---------- 設定 ----------
 export const DEFAULT_NOTIFY = {
-  mom: { kidTask: true, itemDone: true, redeem: true, message: true },
-  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true },
+  mom: { kidTask: true, itemDone: true, redeem: true, message: true, carry: true },
+  kid: { taskReview: true, itemReview: true, redeem: true, message: true, weekly: true, daily: true, carry: true },
   quietStart: '22:00',
   quietEnd: '07:00',
   dailyTime: '20:00'
@@ -92,11 +92,11 @@ export async function deliver(fid, who, msg) {
  * 發通知（會檢查類別開關與勿擾時段；勿擾時段內先排隊，時段結束後再發）
  * category: mom.kidTask / kid.message …
  */
-export async function notify(fid, who, category, msg, settings) {
+export async function notify(fid, who, category, msg, settings, at) {
   const s = settings || await loadSettings(fid);
   const group = who === 'mom' ? s.mom : s.kid;
   if (group[category] === false) return;
-  const now = taipeiNow();
+  const now = at || taipeiNow();
   if (inQuiet(now.hm, s.quietStart, s.quietEnd)) {
     await db.collection(`families/${fid}/pushQueue`).add({ who, ...msg, createdAt: FieldValue.serverTimestamp() });
     return;
@@ -129,6 +129,86 @@ export async function remainingToday(fid, kidId, now) {
     return t.kind === 'weekly' && t.status !== 'rejected' && t.week <= now.date && t.weekEnd >= now.date;
   }).length;
   return { left, unplanned };
+}
+
+// ---------- 自動順延：前一天沒完成的進度移到隔天 ----------
+export function addDays(d, n) {
+  const x = new Date(d + 'T00:00:00Z');
+  x.setUTCDate(x.getUTCDate() + n);
+  return x.toISOString().slice(0, 10);
+}
+
+/**
+ * 把 day 那天沒完成的「進度」順延到隔天（固定事項、每日單字不順延）。
+ * - 沒完成 = 沒有清單項目，或項目還沒勾選／被退回（已勾選待核可、已入帳都算完成）
+ * - 本週進度順延超過那週週日，就變成「逾期未安排」，由媽媽處理
+ * - day 那天的項目留著並標成「已順延」，所以那天不會算全部完成
+ * 回傳 { kidId: [{ title, to }] }
+ */
+export async function carryOverDay(fid, day) {
+  const next = addDays(day, 1);
+  const fam = db.doc(`families/${fid}`);
+  const [tasks, items] = await Promise.all([
+    fam.collection('tasks').where('date', '==', day).get(),
+    fam.collection('items').where('date', '==', day).get()
+  ]);
+  const itemBy = new Map(items.docs.map((d) => [d.id, d]));
+  const moved = {};
+  const batch = db.batch();
+  let n = 0;
+  for (const t of tasks.docs) {
+    const d = t.data();
+    if (d.status !== 'approved') continue;
+    const iid = `${d.kidId}_${day}_${t.id}`;
+    const it = itemBy.get(iid);
+    const review = it ? it.data().review : 'none';
+    if (it && (it.data().done || review === 'pending' || review === 'approved')) continue;
+    const overdue = d.kind === 'weekly' && d.weekEnd && next > d.weekEnd;
+    const to = overdue ? '' : next;
+    batch.update(t.ref, { date: to, carriedFrom: FieldValue.arrayUnion(day), carryCount: FieldValue.increment(1), updatedAt: FieldValue.serverTimestamp() });
+    const mark = { missed: true, carriedTo: to || 'overdue' };
+    if (it) batch.update(it.ref, mark);
+    else {
+      batch.set(fam.collection('items').doc(iid), {
+        kidId: d.kidId, date: day, sourceType: 'task', sourceId: t.id, title: d.title, subject: d.subject || '', points: d.points || 0,
+        order: 1000, done: false, doneAt: null, review: 'none', returnNote: '', createdAt: FieldValue.serverTimestamp(), ...mark
+      });
+    }
+    (moved[d.kidId] ||= []).push({ title: d.title, to });
+    n++;
+  }
+  if (n) await batch.commit();
+  return moved;
+}
+
+async function carryOver(fid, s, now) {
+  const stateRef = db.doc(`families/${fid}/meta/pushState`);
+  const st = (await stateRef.get()).data() || {};
+  const yesterday = addDays(now.date, -1);
+  // 第一次執行只處理昨天；之後從上次處理的隔天補到昨天（最多 7 天）
+  let day = st.lastCarry ? addDays(st.lastCarry, 1) : yesterday;
+  if (day < addDays(yesterday, -6)) day = addDays(yesterday, -6);
+  const all = {};
+  for (; day <= yesterday; day = addDays(day, 1)) {
+    const moved = await carryOverDay(fid, day);
+    for (const [k, list] of Object.entries(moved)) (all[k] ||= []).push(...list);
+    await stateRef.set({ lastCarry: day }, { merge: true });
+  }
+  for (const [kidId, list] of Object.entries(all)) {
+    const toToday = list.filter((x) => x.to === now.date);
+    const overdue = list.filter((x) => !x.to);
+    const names = list.slice(0, 3).map((x) => x.title).join('、') + (list.length > 3 ? ` 等 ${list.length} 項` : '');
+    await notify(fid, kidId, 'carry', {
+      title: `⏰ 昨天有 ${list.length} 項沒完成`,
+      body: `${names}${toToday.length ? '\n已經排到今天，加油！' : ''}${overdue.length ? `\n${overdue.length} 項本週進度過期了，請媽媽幫忙安排` : ''}`,
+      url: `#/k/${kidId}/checklist`, tag: `carry-${kidId}`
+    }, s, now);
+    await notify(fid, 'mom', 'carry', {
+      title: `⏰ ${await kidName(fid, kidId)}昨天有 ${list.length} 項沒完成`,
+      body: `${names}${toToday.length ? `\n${toToday.length} 項已順延到今天` : ''}${overdue.length ? `\n${overdue.length} 項本週進度已逾期，需要你處理` : ''}`,
+      url: `#/k/${kidId}/${overdue.length ? 'schedule' : 'checklist'}`, tag: `carry-${kidId}`
+    }, s, now);
+  }
 }
 
 async function dailyReminder(fid, s, now) {
@@ -171,6 +251,7 @@ export async function runPeriodic(date = new Date()) {
   const fams = await db.collection('families').listDocuments();
   for (const f of fams) {
     const s = await loadSettings(f.id);
+    await carryOver(f.id, s, now);
     await flushQueue(f.id, s, now);
     await dailyReminder(f.id, s, now);
   }

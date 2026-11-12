@@ -5,7 +5,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fn from '../functions/index.js';
-import { db, runPeriodic, tokensFor, taipeiNow, inQuiet } from '../functions/core.js';
+import { db, runPeriodic, tokensFor, taipeiNow, inQuiet, carryOverDay } from '../functions/core.js';
 import { ttsHandler, ttsId, DAILY_CAP } from '../functions/tts.js';
 
 const F = 'families/home';
@@ -207,4 +207,80 @@ test('雲端語音：超過每日上限就拒絕；隔天重新計算', async ()
   await db.doc(`${F}/meta/ttsUsage`).set({ date: '2000-01-01', chars: DAILY_CAP });
   await ttsHandler({ uid: 'a', fid: 'home', text: 'apple' }, synth);
   assert.equal((await db.doc(`${F}/meta/ttsUsage`).get()).data().chars, 5);
+});
+
+// ---------- 自動順延 ----------
+async function seedCarry() {
+  const Y = '2026-11-11';   // 週三
+  const t = (id, o) => db.doc(`${F}/tasks/${id}`).set({ kidId: 'kidA', date: Y, title: id, subject: '', points: 2, createdBy: 'mom', status: 'approved', momNote: '', ...o });
+  const it = (id, o) => db.doc(`${F}/items/kidA_${Y}_${id}`).set({ kidId: 'kidA', date: Y, sourceType: 'task', sourceId: id, title: id, points: 2, done: false, review: 'none', ...o });
+  await t('notOpened');                                      // 那天沒打開清單（沒有項目）→ 順延
+  await t('notDone'); await it('notDone');                   // 沒勾 → 順延
+  await t('returned'); await it('returned', { review: 'returned' });   // 被退回沒重做 → 順延
+  await t('pending'); await it('pending', { done: true, review: 'pending' });     // 已勾待核可 → 不順延
+  await t('approved'); await it('approved', { done: true, review: 'approved' }); // 已入帳 → 不順延
+  await t('kidPending', { status: 'pending', createdBy: 'kid', points: 0 });     // 還沒確認的不動
+  await t('weeklyMid', { kind: 'weekly', week: '2026-11-09', weekEnd: '2026-11-15' });
+  await t('weeklyEnd', { kind: 'weekly', week: '2026-11-09', weekEnd: '2026-11-15', date: '2026-11-15' });
+  await db.doc(`${F}/tasks/otherDay`).set({ kidId: 'kidA', date: '2026-11-10', title: 'otherDay', points: 1, status: 'approved' });
+  return Y;
+}
+
+test('自動順延：沒完成的進度移到隔天，前一天留下「已順延」的項目', async () => {
+  const Y = await seedCarry();
+  const moved = await carryOverDay('home', Y);
+  assert.deepEqual(moved.kidA.map((x) => x.title).sort(), ['notDone', 'notOpened', 'returned', 'weeklyMid']);
+  const task = async (id) => (await db.doc(`${F}/tasks/${id}`).get()).data();
+  const item = async (id, d = Y) => (await db.doc(`${F}/items/kidA_${d}_${id}`).get()).data();
+  for (const id of ['notOpened', 'notDone', 'returned', 'weeklyMid']) {
+    const t = await task(id);
+    assert.equal(t.date, '2026-11-12', id);
+    assert.deepEqual(t.carriedFrom, [Y]);
+    assert.equal(t.carryCount, 1);
+    const i = await item(id);
+    assert.equal(i.missed, true, id); assert.equal(i.carriedTo, '2026-11-12');
+  }
+  assert.equal((await item('notOpened')).review, 'none');            // 沒有項目的會被建立
+  for (const id of ['pending', 'approved', 'kidPending']) { assert.equal((await task(id)).date, Y, id); assert.equal((await task(id)).carryCount, undefined); }
+  assert.equal((await task('otherDay')).date, '2026-11-10');
+  // 週日那天的本週進度沒做 → 逾期未安排
+  const m2 = await carryOverDay('home', '2026-11-15');
+  assert.deepEqual(m2.kidA, [{ title: 'weeklyEnd', to: '' }]);
+  assert.equal((await task('weeklyEnd')).date, '');
+  assert.equal((await item('weeklyEnd', '2026-11-15')).carriedTo, 'overdue');
+  // 再跑一次不會重複處理
+  assert.deepEqual(await carryOverDay('home', Y), {});
+});
+
+test('自動順延：排程在隔天 0 點後執行一次、通知孩子與媽媽（勿擾時段排到早上）、可連續順延', async () => {
+  await reset({ quietStart: '22:00', quietEnd: '07:00', kid: { daily: false } });
+  const Y = await seedCarry();
+  await db.doc(`${F}/meta/pushState`).set({ lastCarry: '2026-11-10' });
+  await runPeriodic(new Date('2026-11-11T15:00:00Z'));   // 台灣 11/11 23:00：還沒過午夜，不處理 11/11
+  assert.equal((await db.doc(`${F}/tasks/notDone`).get()).data().date, Y);
+  await runPeriodic(new Date('2026-11-11T16:30:00Z'));   // 台灣 11/12 00:30
+  assert.equal((await db.doc(`${F}/tasks/notDone`).get()).data().date, '2026-11-12');
+  const q = await queue();
+  assert.equal(q.length, 2);
+  assert.ok(q.some((m) => m.who === 'kidA' && m.title === '⏰ 昨天有 4 項沒完成' && m.body.includes('已經排到今天')));
+  assert.ok(q.some((m) => m.who === 'mom' && m.title.includes('小明昨天有 4 項沒完成')));
+  await runPeriodic(new Date('2026-11-11T17:00:00Z'));   // 同一晚再跑：不重複
+  assert.equal((await queue()).length, 2);
+  await runPeriodic(new Date('2026-11-11T23:00:00Z'));   // 台灣 07:00 → 補發
+  assert.equal((await logs()).length, 2);
+  // 隔天又沒做 → 再順延一次
+  await runPeriodic(new Date('2026-11-12T16:30:00Z'));
+  const t = (await db.doc(`${F}/tasks/notDone`).get()).data();
+  assert.equal(t.date, '2026-11-13'); assert.equal(t.carryCount, 2); assert.deepEqual(t.carriedFrom, [Y, '2026-11-12']);
+});
+
+test('自動順延：通知可以關閉；順延時不會另外發「媽媽退回本週進度」的通知', async () => {
+  await reset({ ...NO_QUIET, mom: { carry: false }, kid: { carry: false, daily: false } });
+  await seedCarry();
+  await db.doc(`${F}/meta/pushState`).set({ lastCarry: '2026-11-10' });
+  await runPeriodic(new Date('2026-11-11T16:30:00Z'));
+  assert.equal((await logs()).length, 0);
+  const before = { kidId: 'kidA', kind: 'weekly', status: 'approved', date: '2026-11-15', title: 'w', carryCount: 0 };
+  await fn.onTaskUpdated.run(updated({ id: 'w' }, before, { ...before, date: '', carryCount: 1 }));
+  assert.equal((await logs()).length, 0);
 });
