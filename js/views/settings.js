@@ -346,6 +346,7 @@ export function mountSettings(el) {
         ${sw('mom.redeem', n.mom.redeem, '🎁 孩子申請兌換')}
         ${sw('mom.message', n.mom.message, '💬 孩子的留言')}
         ${sw('mom.carry', n.mom.carry, '⏰ 孩子前一天沒完成、自動順延的作業（早上）')}
+        ${sw('mom.due', n.mom.due, '⚠️ 作業過了期限還沒完成（早上）')}
         <h3 class="small muted">孩子會收到</h3>
         ${sw('kid.taskReview', n.kid.taskReview, '✅ 進度被確認或退回（含建議）')}
         ${sw('kid.itemReview', n.kid.itemReview, '⭐ 點數入帳、被退回、額外獎勵')}
@@ -353,8 +354,10 @@ export function mountSettings(el) {
         ${sw('kid.message', n.kid.message, '💬 媽媽的留言')}
         ${sw('kid.weekly', n.kid.weekly, '📦 媽媽新增了本週進度')}
         ${sw('kid.daily', n.kid.daily, '🌙 每日提醒：今天還沒完成的項目')}
-        ${sw('kid.carry', n.kid.carry, '⏰ 前一天沒完成的作業已順延到今天（早上）')}
+        ${sw('kid.carry', n.kid.carry, '⏰ 放學後提醒：昨天沒完成、順延到今天的作業')}
+        ${sw('kid.due', n.kid.due, '📅 放學後提醒：2 天內到期的作業')}
         <div class="field-row" style="margin-top:12px">
+          <label class="field"><span>放學後提醒時間</span>${timeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
           <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
         </div>
         <div class="field-row">
@@ -392,7 +395,7 @@ export function mountSettings(el) {
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
         const n = notifySettings();
-        const notify = { mom: {}, kid: {}, quietStart: fd.get('quietStart'), quietEnd: fd.get('quietEnd'), dailyTime: fd.get('dailyTime') };
+        const notify = { mom: {}, kid: {}, quietStart: fd.get('quietStart'), quietEnd: fd.get('quietEnd'), dailyTime: fd.get('dailyTime'), afterSchoolTime: fd.get('afterSchoolTime') };
         for (const g of ['mom', 'kid']) for (const k of Object.keys(n[g])) notify[g][k] = fd.get(`${g}.${k}`) === 'on';
         await saveSettings({ notify });
         toast('通知設定已儲存', 'ok');

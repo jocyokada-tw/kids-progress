@@ -98,7 +98,9 @@ service cloud.firestore {
               && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['date', 'updatedAt'])
               && isDate(request.resource.data.date)
               && request.resource.data.date >= resource.data.week
-              && request.resource.data.date <= resource.data.weekEnd);
+              && request.resource.data.date <= resource.data.weekEnd
+              // 有期限的話，只能排在期限當天或之前
+              && (resource.data.get('due', '') == '' || request.resource.data.date <= resource.data.due));
         allow delete: if isMom()
           || (canKid(resource.data.kidId) && resource.data.createdBy == 'kid' && resource.data.status == 'pending');
       }

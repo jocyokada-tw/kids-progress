@@ -5,7 +5,7 @@
 import { test, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import * as fn from '../functions/index.js';
-import { db, runPeriodic, tokensFor, taipeiNow, inQuiet, carryOverDay } from '../functions/core.js';
+import { db, runPeriodic, tokensFor, taipeiNow, inQuiet, carryOverDay, afterSchoolList } from '../functions/core.js';
 import { ttsHandler, ttsId, DAILY_CAP } from '../functions/tts.js';
 
 const F = 'families/home';
@@ -245,7 +245,7 @@ test('自動順延：沒完成的進度移到隔天，前一天留下「已順�
   assert.equal((await task('otherDay')).date, '2026-11-10');
   // 週日那天的本週進度沒做 → 逾期未安排
   const m2 = await carryOverDay('home', '2026-11-15');
-  assert.deepEqual(m2.kidA, [{ title: 'weeklyEnd', to: '' }]);
+  assert.deepEqual(m2.kidA.map(({ title, to }) => ({ title, to })), [{ title: 'weeklyEnd', to: '' }]);
   assert.equal((await task('weeklyEnd')).date, '');
   assert.equal((await item('weeklyEnd', '2026-11-15')).carriedTo, 'overdue');
   // 再跑一次不會重複處理
@@ -261,13 +261,15 @@ test('自動順延：排程在隔天 0 點後執行一次、通知孩子與媽�
   await runPeriodic(new Date('2026-11-11T16:30:00Z'));   // 台灣 11/12 00:30
   assert.equal((await db.doc(`${F}/tasks/notDone`).get()).data().date, '2026-11-12');
   const q = await queue();
-  assert.equal(q.length, 2);
-  assert.ok(q.some((m) => m.who === 'kidA' && m.title === '⏰ 昨天有 4 項沒完成' && m.body.includes('已經排到今天')));
+  assert.equal(q.length, 1);                              // 半夜只通知媽媽（排到早上）
   assert.ok(q.some((m) => m.who === 'mom' && m.title.includes('小明昨天有 4 項沒完成')));
   await runPeriodic(new Date('2026-11-11T17:00:00Z'));   // 同一晚再跑：不重複
-  assert.equal((await queue()).length, 2);
+  assert.equal((await queue()).length, 1);
   await runPeriodic(new Date('2026-11-11T23:00:00Z'));   // 台灣 07:00 → 補發
-  assert.equal((await logs()).length, 2);
+  assert.equal((await logs()).length, 1);
+  await runPeriodic(new Date('2026-11-12T08:30:00Z'));   // 台灣 16:30 放學後 → 提醒孩子
+  const kidMsg = (await logs()).find((m) => m.who === 'kidA');
+  assert.ok(kidMsg && kidMsg.title.includes('昨天沒完成') && kidMsg.body.includes('notDone'), JSON.stringify(kidMsg));
   // 隔天又沒做 → 再順延一次
   await runPeriodic(new Date('2026-11-12T16:30:00Z'));
   const t = (await db.doc(`${F}/tasks/notDone`).get()).data();
@@ -283,4 +285,48 @@ test('自動順延：通知可以關閉；順延時不會另外發「媽媽退�
   const before = { kidId: 'kidA', kind: 'weekly', status: 'approved', date: '2026-11-15', title: 'w', carryCount: 0 };
   await fn.onTaskUpdated.run(updated({ id: 'w' }, before, { ...before, date: '', carryCount: 1 }));
   assert.equal((await logs()).length, 0);
+});
+
+// ---------- 期限 ----------
+test('放學後提醒：順延的作業與 2 天內到期的作業；已勾選的不提醒；每天一次', async () => {
+  await reset({ ...NO_QUIET, afterSchoolTime: '16:30', kid: { daily: false } });
+  const T = '2026-11-12';
+  const t = (id, o) => db.doc(`${F}/tasks/${id}`).set({ kidId: 'kidA', title: id, points: 2, status: 'approved', createdBy: 'mom', momNote: '', ...o });
+  await t('carried', { date: T, carriedFrom: ['2026-11-11'], carryCount: 1 });
+  await t('dueTomorrow', { date: '2026-11-13', due: '2026-11-13' });
+  await t('dueIn2', { kind: 'weekly', date: '', week: '2026-11-09', weekEnd: '2026-11-15', due: '2026-11-14' });
+  await t('dueIn3', { date: '2026-11-15', due: '2026-11-15' });
+  await t('dueDone', { date: T, due: '2026-11-13' });
+  await db.doc(`${F}/items/kidA_${T}_dueDone`).set({ kidId: 'kidA', date: T, sourceId: 'dueDone', done: true, review: 'pending' });
+  await t('dueApproved', { date: T, due: T, itemApproved: true });
+  await t('otherKid', { kidId: 'kidB', date: T, due: T });
+  const r = await afterSchoolList('home', 'kidA', T);
+  assert.deepEqual(r.carried, ['carried']);
+  assert.deepEqual(r.soon.map((x) => x.title), ['dueTomorrow', 'dueIn2']);
+  await runPeriodic(new Date('2026-11-12T08:00:00Z'));   // 16:00 還沒到
+  assert.equal((await logs()).length, 0);
+  await runPeriodic(new Date('2026-11-12T08:30:00Z'));   // 16:30
+  await runPeriodic(new Date('2026-11-12T09:00:00Z'));   // 17:00 不重複
+  const l = await logs();
+  assert.equal(l.filter((m) => m.who === 'kidA').length, 1);
+  const m = l.find((x) => x.who === 'kidA');
+  assert.equal(m.title, '📚 今天要先完成的作業');
+  assert.match(m.body, /昨天沒完成：carried/);
+  assert.match(m.body, /dueTomorrow（明天截止）/);
+  assert.match(m.body, /dueIn2（後天截止）/);
+  assert.equal(l.filter((x) => x.who === 'kidB').length, 1);   // 小美也有一項今天截止
+});
+
+test('過了期限還沒完成：照樣順延，期限當天結束時通知媽媽一次', async () => {
+  await reset({ ...NO_QUIET, kid: { daily: false } });
+  await db.doc(`${F}/members/kidA`).set({ name: '小明' });
+  await db.doc(`${F}/tasks/p`).set({ kidId: 'kidA', date: '2026-11-13', due: '2026-11-13', title: '科展報告', points: 5, status: 'approved' });
+  await db.doc(`${F}/meta/pushState`).set({ lastCarry: '2026-11-12', lastAfterSchool: '2026-11-14', lastDaily: '2026-11-14' });
+  await runPeriodic(new Date('2026-11-13T16:30:00Z'));   // 台灣 11/14 00:30
+  assert.equal((await db.doc(`${F}/tasks/p`).get()).data().date, '2026-11-14');
+  const l = await logs();
+  assert.ok(l.some((m) => m.who === 'mom' && m.title === '⚠️ 小明有 1 項作業過了期限' && m.body.includes('科展報告（11/13 截止）')), JSON.stringify(l));
+  await runPeriodic(new Date('2026-11-14T16:30:00Z'));   // 隔天又沒做：再順延，但不再發過期通知
+  assert.equal((await db.doc(`${F}/tasks/p`).get()).data().date, '2026-11-15');
+  assert.equal((await logs()).filter((m) => m.title.includes('過了期限')).length, 1);
 });

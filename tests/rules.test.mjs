@@ -353,3 +353,10 @@ test('雲端語音快取：已配對裝置可讀單筆，不能列出、不能�
   await assertFails(getDocs(collection(db('mom'), F, 'tts')));
   await assertFails(setDoc(doc(db('mom'), F, 'tts/x'), { text: 'x', audio: 'x' }));
 });
+
+test('有期限的本週進度：小孩只能排在期限當天或之前', async () => {
+  await seedWeekly({ due: '2026-11-12' });
+  const ref = doc(db('a'), F, 'tasks/w1');
+  await assertFails(updateDoc(ref, { date: '2026-11-13', updatedAt: serverTimestamp() }));
+  await assertSucceeds(updateDoc(ref, { date: '2026-11-12', updatedAt: serverTimestamp() }));
+});

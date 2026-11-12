@@ -1,7 +1,7 @@
 import { state, isMom, subjectOf } from '../state.js';
 import { esc, toast, showError, modal, popPoints, confirmDialog } from '../ui.js';
 import { watchChecklist, setItemDone, approveItem, returnItem, grantBonus, removeItem } from '../store/checklist.js';
-import { todayStr, labelMD } from '../utils/date.js';
+import { todayStr, labelMD, dueTag } from '../utils/date.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
@@ -77,6 +77,7 @@ export function mountChecklistPanel(el, { kid, date }) {
             ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${it.missed ? (it.carriedTo ? `<span class="tag tag-bad">⏰ ${it.carriedTo === 'overdue' ? '沒完成，本週進度已逾期' : `沒完成，已順延到 ${labelMD(it.carriedTo)}`}</span>` : '<span class="tag tag-bad">↪ 已改期／取消</span>') : STATUS[it.review] || ''}
             ${it.carriedFrom && !it.missed ? `<span class="tag tag-bad">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
+            ${it.due && !it.missed && it.review !== 'approved' ? dueTag(it.due) : ''}
           </div>
           ${it.missed && mom ? `<div class="item-note">${it.carriedTo ? '這天沒有完成' : '這一項改到其他天或取消了'}，還是算在這天的清單裡，所以這天不算全部完成。</div>` : ''}
           ${it.carriedFrom && !it.missed && !it.done && it.review !== 'approved' ? `<div class="item-note">⏰ ${labelMD(it.carriedFrom)} 沒完成的作業，今天記得要完成喔！</div>` : ''}

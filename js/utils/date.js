@@ -41,3 +41,14 @@ export function labelTime(ts) {
   const d = ts.toDate ? ts.toDate() : new Date(ts);
   return new Intl.DateTimeFormat('zh-TW', { timeZone: TZ, month: 'numeric', day: 'numeric', hour: '2-digit', minute: '2-digit', hour12: false }).format(d);
 }
+
+/** 期限標籤：{ text, level }；level: 'over'（已過期限）| 'soon'（今天或明天）| 'ok' */
+export function dueInfo(due, today = todayStr()) {
+  if (!isDateStr(due)) return null;
+  const n = diffDays(today, due);
+  if (n < 0) return { text: `⚠️ 已過期限（${labelMD(due)}）`, level: 'over' };
+  if (n === 0) return { text: '📅 今天截止', level: 'soon' };
+  if (n === 1) return { text: '📅 明天截止', level: 'soon' };
+  return { text: `📅 ${labelMD(due)} 截止・還有 ${n} 天`, level: n <= 2 ? 'soon' : 'ok' };
+}
+export const dueTag = (due, today) => { const d = dueInfo(due, today); return d ? `<span class="tag ${d.level === 'ok' ? 'tag-wait' : 'tag-bad'}">${d.text}</span>` : ''; };
