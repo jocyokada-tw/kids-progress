@@ -78,7 +78,7 @@ export function mountSchedule(el, { kid }) {
               <span class="event-time">🕒 ${esc(timeRange(e))}</span><span class="task-title">${esc(e.title)}</span></button></li>`).join('')}
             ${list.map((t) => `<li><button class="task task-${t.status}" style="--s:${esc(subjectOf(t.subject).color)}" data-act="open" data-id="${t.id}">
               <span class="task-title">${esc(t.title)}</span>
-              <span class="task-meta">${t.carriedFrom && t.carriedFrom.length ? `<span class="tag tag-wait">⏰ 順延${t.carryCount > 1 ? ` ${t.carryCount} 次` : ''}</span>` : ''}${t.kind === 'weekly' ? '<span class="tag">📦 本週</span>' : ''}<span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
+              <span class="task-meta">${t.carriedFrom && t.carriedFrom.length ? `<span class="tag tag-bad">⏰ 順延${t.carryCount > 1 ? ` ${t.carryCount} 次` : ''}</span>` : ''}${t.kind === 'weekly' ? '<span class="tag">📦 本週</span>' : ''}<span class="subj-tag">${esc(subjectOf(t.subject).name)}</span>${TASK_STATUS[t.status] || ''}${t.points ? `<span class="pts sm">+${t.points}</span>` : ''}${t.momNote ? '<span title="媽媽的建議">💬</span>' : ''}${t.createdBy === 'kid' ? '<span class="tag">自己排</span>' : ''}</span>
             </button></li>`).join('')}
           </ul>`}
       </div>`;

@@ -69,16 +69,17 @@ export function mountChecklistPanel(el, { kid, date }) {
   function row(it) {
     const checked = it.done || it.review === 'approved';
     return `
-      <li class="item item-${it.review} ${it.missed ? 'item-missed' : ''}">
+      <li class="item item-${it.review} ${it.missed ? 'item-missed' : ''} ${it.carriedFrom && !it.missed && it.review !== 'approved' ? 'item-carried' : ''}">
         <button class="check ${checked ? 'checked' : ''}" data-act="toggle" data-id="${it.id}" aria-pressed="${checked}" aria-label="${esc(it.title)}">${checked ? '✓' : ''}</button>
         <div class="item-main">
           <div class="item-title">${esc(it.title)}</div>
           <div class="item-meta">
             ${it.sourceType === 'words' ? wordsTag(it) : it.sourceType === 'routine' ? '<span class="tag">每日</span>' : `<span class="subj-tag" style="--s:${esc(subjectOf(it.subject).color)}">${esc(subjectOf(it.subject).name)}</span>`}
             ${it.missed ? (it.carriedTo ? `<span class="tag tag-bad">⏰ ${it.carriedTo === 'overdue' ? '沒完成，本週進度已逾期' : `沒完成，已順延到 ${labelMD(it.carriedTo)}`}</span>` : '<span class="tag tag-bad">↪ 已改期／取消</span>') : STATUS[it.review] || ''}
-            ${it.carriedFrom && !it.missed ? `<span class="tag tag-wait">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
+            ${it.carriedFrom && !it.missed ? `<span class="tag tag-bad">⏰ 順延自 ${labelMD(it.carriedFrom)}</span>` : ''}
           </div>
           ${it.missed && mom ? `<div class="item-note">${it.carriedTo ? '這天沒有完成' : '這一項改到其他天或取消了'}，還是算在這天的清單裡，所以這天不算全部完成。</div>` : ''}
+          ${it.carriedFrom && !it.missed && !it.done && it.review !== 'approved' ? `<div class="item-note">⏰ ${labelMD(it.carriedFrom)} 沒完成的作業，今天記得要完成喔！</div>` : ''}
           ${it.review === 'returned' && it.returnNote ? `<div class="item-note">💬 ${esc(it.returnNote)}</div>` : ''}
         </div>
         <span class="pts">+${it.points || 0}</span>

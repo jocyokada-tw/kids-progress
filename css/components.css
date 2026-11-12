@@ -501,3 +501,5 @@ button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min
 .list-done .goal-fill { background: linear-gradient(90deg, #2dbb6c, #7ad97f); }
 .item-missed .item-title { text-decoration: line-through; color: var(--muted); }
 .item-missed .check { opacity: .35; }
+/* 順延來的作業：紅色左框，讓孩子一眼看到 */
+.item-carried { border-left: 5px solid var(--bad); padding-left: 8px; background: color-mix(in srgb, var(--bad-soft) 45%, white); border-radius: 12px; }
