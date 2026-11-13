@@ -4,6 +4,7 @@ import { go } from '../router.js';
 import { todayStr, labelMD, labelRelative, weekStart, addDays } from '../utils/date.js';
 import { journalSettings, usesJournal, classesOn, isClassDay, isLightDay, writableDates, canWrite, levelOf, pointsFor, feelingInText, categoryOf, MOOD_EMOJI } from '../utils/journal.js';
 import { watchNotes, saveNote, setMomComment, loadPrompts, noteId } from '../store/journal.js';
+import { weekSummary, sensitiveHints, isWeekend } from '../utils/weekly.js';
 
 export const LEVEL_LABEL = { basic: '基本', advanced: '進階', full: '完整' };
 const filled = (s) => typeof s === 'string' && s.trim().length > 0;
@@ -33,7 +34,10 @@ export function mountJournal(el, { kid, arg }) {
     return () => {};
   }
 
-  el.innerHTML = `<div class="page-head"><h1>📝 課後小記</h1></div><div id="jBody"><p class="empty">載入中…</p></div>`;
+  el.innerHTML = `<div class="page-head"><h1>📝 課後小記</h1>
+      <button class="btn btn-sm ${!mom && isWeekend(weekStart(today), today) ? 'btn-primary' : 'btn-ghost'}" data-go="/k/${kid}/weekly">📒 記事錄整理</button></div>
+    <div id="jBody"><p class="empty">載入中…</p></div>`;
+  el.querySelector('[data-go]').addEventListener('click', (e) => go(e.currentTarget.dataset.go));
   const body = el.querySelector('#jBody');
   const noteOf = (d) => (notes || []).find((n) => n.date === d) || null;
 
@@ -97,7 +101,7 @@ export function mountJournal(el, { kid, arg }) {
     if (f && (f.refinements || []).length) html += `<div class="chips-row">${f.refinements.map((r) => choice('detail', r, esc(r), draft.moodDetail === r)).join('')}</div>`;
     if (f && f.followUp) html += input('followUpAnswer', `💭 ${esc(f.followUp)}`, f.sentenceStarter || '', '可以不寫');
     if (draft.mood === 'tired' || (draft.mood && draft.mood !== 'tired' && feelingInText(draft.learned) === 'tired')) {
-      html += `<p class="jnote">😪 ${esc((f && f.id === 'tired' && f.note ? f.note.replace(/^.*只顯示：/, '') : '') || '累的時候也記得留下一句，很棒')}</p>`;
+      html += `<p class="jnote">😪 ${esc((f && f.id === 'tired' ? f.message || (f.note || '').replace(/^.*只顯示：/, '') : '') || '累的時候也記得留下一句，很棒')}</p>`;
     }
     if (showBoring) {
       const reason = (bf().reasons || []).find((r) => r.id === draft.boringReason);
@@ -191,10 +195,28 @@ export function mountJournal(el, { kid, arg }) {
       ${showOld ? old.map((n) => summary(n, false)).join('') : ''}`;
   }
 
+  // 媽媽的每週摘要（含連續幾週的提示，只有媽媽看得到）
+  function momSummary() {
+    const w = weekStart(today);
+    const s = weekSummary(cfg, kid, notes, w, today);
+    const hints = sensitiveHints(notes, today, prompts, Number(cfg.hintWeeks) || 2);
+    const hintText = (prompts.boringFlow || {}).parentHint || '這類課程近幾週有較多類似回應，可以找時間聊聊';
+    const moods = Object.entries(s.moods).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${MOOD_EMOJI[m] || ''}${esc((feeling(m) || {}).label || m)} ${n}`).join('　');
+    const lv = ['full', 'advanced', 'basic'].filter((l) => s.levels[l]).map((l) => `${LEVEL_LABEL[l]} ${s.levels[l]}`).join('・');
+    return `<section class="card jsummary">
+      <div class="card-head"><h2>📊 這週摘要</h2><span class="muted small">${labelMD(w)} 起</span></div>
+      ${s.classDays ? `<p>上課 ${s.classDays} 天：寫了 <strong>${s.written}</strong> 天${s.skipped ? `、休息 ${s.skipped} 天` : ''}${s.missing ? `、還沒寫 ${s.missing} 天` : ''}${s.points ? `・小記 +${s.points} 點` : ''}</p>
+        ${lv ? `<p class="muted small">完成程度：${lv}</p>` : ''}
+        ${moods ? `<p>${moods}</p>` : ''}
+        ${s.questions.length ? `<p class="muted small">❓ 孩子想知道的</p><ul class="wnotes">${s.questions.map((q) => `<li>${esc(q.text)} <span class="muted small">${labelMD(q.date)}${q.category ? `・${esc(categoryOf(q.category).label)}` : ''}</span></li>`).join('')}</ul>` : ''}` : '<p class="muted">這週還沒有上課</p>'}
+      ${hints.map((h) => `<div class="jhint">💡 ${categoryOf(h.category).emoji} ${esc(categoryOf(h.category).label)}：${esc(hintText)}<br><span class="muted small">連續 ${h.weeks} 週都有「沒興趣／不喜歡／跟不上」的回應（只有你看得到）</span></div>`).join('')}
+    </section>`;
+  }
+
   function momView() {
     const thisWeek = dates.map((d) => summary(noteOf(d), false, d)).reverse().join('');
     const old = (notes || []).filter((n) => !dates.includes(n.date));
-    return `${thisWeek || '<section class="card"><p class="empty">這週還沒有資優班的課</p></section>'}
+    return `${momSummary()}${thisWeek || '<section class="card"><p class="empty">這週還沒有資優班的課</p></section>'}
       ${old.length ? `<h2 class="section-title">以前的小記</h2>${old.slice(0, 30).map((n) => summary(n, false)).join('')}` : ''}`;
   }
 

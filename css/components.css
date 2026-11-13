@@ -537,3 +537,22 @@ button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min
 .jsched-row { display: grid; grid-template-columns: 4.6em minmax(0, 1fr) 3.6em auto; gap: 6px; align-items: center; margin-bottom: 6px; }
 .jsched-row .select, .jsched-row input { min-width: 0; width: 100%; padding-left: 8px; padding-right: 4px; }
 .section-title { margin: 16px 4px 8px; font-size: 1rem; }
+
+/* ---------- 記事錄整理、每週摘要 ---------- */
+.sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+.wrecall { padding: 8px 12px; border-radius: 12px; background: color-mix(in srgb, var(--kid) 6%, white); }
+.wnotes, .wprompts { margin: 4px 0; padding-left: 1.2em; }
+.wnotes li, .wprompts li { margin: 4px 0; overflow-wrap: anywhere; }
+.wstarter { font-size: .95rem; }
+.wtext { white-space: normal; overflow-wrap: anywhere; line-height: 1.7; }
+.wsec textarea { line-height: 1.6; }
+.jhint { margin-top: 10px; padding: 10px 12px; border-radius: 12px; background: #eef4ff; }
+.print-only { display: none; }
+@media print {
+  .topbar, .tabs, .page-head, .no-print, .wsec, .update-bar, #toast-root { display: none !important; }
+  .print-only { display: block; font-size: 14pt; line-height: 1.8; }
+  .print-only h3 { margin: 16px 0 4px; }
+  body, .shell, .view { background: #fff !important; }
+}
+fieldset.pe { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 0; margin: 0 0 10px; }
+fieldset.pe legend { padding: 0 6px; font-weight: 600; }

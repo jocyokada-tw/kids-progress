@@ -398,3 +398,23 @@ test('課後小記：孩子寫自己的；點數欄位只有伺服器能寫；�
   await assertFails(getDocs(query(collection(a, F, 'classNotes'), where('kidId', '==', 'kidB'))));
   await assertFails(deleteDoc(ref));
 });
+
+test('記事錄整理：孩子寫自己的；點數只有伺服器能寫；自訂開頭句只能讀寫自己的', async () => {
+  const a = db('a');
+  const ref = doc(a, F, 'weeklyJournals/kidA_2026-11-09');
+  await assertFails(setDoc(doc(a, F, 'weeklyJournals/kidA_2026-11-16'), { kidId: 'kidA', week: '2026-11-09', sections: {} }));
+  await assertFails(setDoc(doc(a, F, 'weeklyJournals/kidB_2026-11-09'), { kidId: 'kidB', week: '2026-11-09', sections: {} }));
+  await assertFails(setDoc(ref, { kidId: 'kidA', week: '2026-11-09', sections: {}, awarded: 3 }));
+  await assertFails(setDoc(ref, { kidId: 'kidA', week: '2026-11-09', status: 'approved' }));
+  await assertSucceeds(setDoc(ref, { kidId: 'kidA', week: '2026-11-09', sections: { humanities: { text: '朝代' } }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertSucceeds(setDoc(ref, { kidId: 'kidA', week: '2026-11-09', status: 'done', submittedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(updateDoc(ref, { awarded: 3 }));
+  await assertFails(updateDoc(ref, { week: '2026-11-16' }));
+  await assertSucceeds(getDoc(doc(db('mom'), F, 'weeklyJournals/kidA_2026-11-09')));
+  await assertFails(updateDoc(doc(db('mom'), F, 'weeklyJournals/kidA_2026-11-09'), { awarded: 3 }));
+  await assertSucceeds(setDoc(doc(a, F, 'customStarters/kidA'), { list: [{ id: 'c1', category: 'humanities', text: '我覺得……' }] }));
+  await assertFails(setDoc(doc(a, F, 'customStarters/kidB'), { list: [] }));
+  await assertSucceeds(setDoc(doc(db('mom'), F, 'meta/journalPrompts'), { feelings: [] }));
+  await assertFails(setDoc(doc(a, F, 'meta/journalPrompts'), { feelings: [] }));
+  await assertSucceeds(getDoc(doc(a, F, 'meta/journalPrompts')));
+});

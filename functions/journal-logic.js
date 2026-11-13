@@ -45,3 +45,11 @@ export function weekStartOf(d) {
   x.setUTCDate(x.getUTCDate() + (wd === 0 ? -6 : 1 - wd));
   return x.toISOString().slice(0, 10);
 }
+/** 這個孩子有開啟小記，而且課表裡有課 */
+export const hasClasses = (cfg, kidId) => (cfg.kids || []).includes(kidId) && ((cfg.schedule && cfg.schedule[kidId]) || []).some((c) => Number(c.count) > 0);
+/** week 是週一，today 是那週的週六或週日 */
+export function weekendWindow(week, today) {
+  if (weekStartOf(week) !== week) return false;
+  const add = (n) => { const x = new Date(week + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+  return today >= add(5) && today <= add(6);
+}

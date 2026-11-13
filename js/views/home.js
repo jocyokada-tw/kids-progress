@@ -5,7 +5,7 @@ import { watchLedger } from '../store/ledger.js';
 import { watchPendingItems } from '../store/checklist.js';
 import { watchPendingTasks, watchUnscheduled, watchDue } from '../store/tasks.js';
 import { getItemOnce } from '../store/checklist.js';
-import { todayStr, labelMD, addDays, dueTag } from '../utils/date.js';
+import { todayStr, labelMD, addDays, dueTag, weekStart } from '../utils/date.js';
 import { mountChecklistPanel } from './checklist-panel.js';
 import { mountEventCalendar } from './calendar.js';
 import { watchWordLists, watchSession } from '../store/words.js';
@@ -13,7 +13,8 @@ import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
 import { journalSettings, usesJournal, writableDates, isClassDay } from '../utils/journal.js';
-import { watchNotes } from '../store/journal.js';
+import { watchNotes, watchWeekly } from '../store/journal.js';
+import { weekClasses, isWeekend } from '../utils/weekly.js';
 import { noteStatus } from './journal.js';
 
 export const TASK_STATUS = {
@@ -40,6 +41,7 @@ export function mountHome(el, { kid }) {
     <section class="card" id="goal" hidden></section>
     <section class="card" id="wordsCard" hidden></section>
     <section class="card" id="journalCard" hidden></section>
+    <section class="card" id="weeklyCard" hidden></section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><h2>今日清單 <span class="muted small">${labelMD(today)}</span></h2>
@@ -147,6 +149,18 @@ export function mountHome(el, { kid }) {
           ${gentle ? '<br><span class="small">上完課了嗎？花 30 秒記一下就好 🙂</span>' : ''}</div>
         <button class="btn ${!isMom() && open.length ? 'btn-primary' : 'btn-ghost'}" data-go="/k/${kid}/journal">${isMom() ? '查看' : open.length ? '寫一下 ▶' : '看小記'}</button></div>`;
     }, (e) => showError(e, '讀取小記')));
+    // 週末：記事錄整理
+    const wk = weekStart(today);
+    if (isWeekend(wk, today) && weekClasses(jcfg, kid, wk).length) {
+      unsubs.push(watchWeekly(kid, wk, (w) => {
+        const c = $('#weeklyCard');
+        const done = w && w.status === 'done';
+        c.hidden = false;
+        c.innerHTML = `<div class="push-card"><span style="font-size:2rem">📒</span>
+          <div class="grow"><strong>記事錄整理</strong><br><span class="muted small">${done ? `✓ 這週整理好了${w.awarded ? ` +${w.awarded}` : ''}` : w ? '寫到一半' : `把這週的課整理一下${jcfg.weeklyPoints ? `（+${jcfg.weeklyPoints} 點）` : ''}`}</span></div>
+          <button class="btn ${!isMom() && !done ? 'btn-primary' : 'btn-ghost'}" data-go="/k/${kid}/weekly">${isMom() || done ? '查看' : w ? '繼續 ▶' : '開始 ▶'}</button></div>`;
+      }, (e) => showError(e, '讀取整理')));
+    }
   }
 
   if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });

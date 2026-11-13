@@ -185,6 +185,25 @@ service cloud.firestore {
         allow delete: if isMom();
       }
 
+      // ---------- 週末記事錄整理：weeklyJournals/{kidId}_{週一}；awarded 只有伺服器能寫 ----------
+      match /weeklyJournals/{wid} {
+        allow get: if paired() && (resource == null || isMom() || canKid(resource.data.kidId));
+        allow list: if isMom() || canKid(resource.data.kidId);
+        allow create: if canKid(request.resource.data.kidId)
+          && wid == request.resource.data.kidId + '_' + request.resource.data.week
+          && isDate(request.resource.data.week)
+          && request.resource.data.keys().hasOnly(['kidId', 'week', 'sections', 'status', 'submittedAt', 'updatedAt'])
+          && (!('status' in request.resource.data) || request.resource.data.status in ['draft', 'done']);
+        allow update: if canKid(resource.data.kidId)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['sections', 'status', 'submittedAt', 'updatedAt'])
+          && (!('status' in request.resource.data) || request.resource.data.status in ['draft', 'done']);
+        allow delete: if isMom();
+      }
+      // 孩子自訂的開頭句
+      match /customStarters/{kidId} {
+        allow read, write: if canKid(kidId);
+      }
+
       // ---------- 課程（非學校行程，沒有點數）：媽媽設定，小孩只能看 ----------
       match /events/{eventId} {
         allow read: if isMom() || canKid(resource.data.kidId);

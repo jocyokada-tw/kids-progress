@@ -6,7 +6,7 @@ import { onCall, HttpsError } from 'firebase-functions/v2/https';
 import { ttsHandler } from './tts.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { db, TZ, notify, kidName, clip, md, runPeriodic } from './core.js';
-import { onNoteWritten } from './journal.js';
+import { onNoteWritten, onWeeklyWritten } from './journal.js';
 
 // ⚠️ 必須和 Firestore 資料庫的位置相同（Firebase 主控台 → Firestore → 資料庫位置）
 const REGION = 'asia-east1';
@@ -138,6 +138,11 @@ export const onMessageCreated = onDocumentCreated('families/{fid}/threads/{kidId
 export const onClassNoteWritten = onDocumentWritten('families/{fid}/classNotes/{id}', async (event) => {
   const { fid, id } = event.params;
   await onNoteWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
+});
+
+export const onWeeklyJournalWritten = onDocumentWritten('families/{fid}/weeklyJournals/{id}', async (event) => {
+  const { fid, id } = event.params;
+  await onWeeklyWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 // ---------- 雲端語音（每日單字的發音） ----------

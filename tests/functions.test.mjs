@@ -413,3 +413,31 @@ test('課後小記：媽媽留言通知孩子；上課日 18:30 後沒寫才溫�
   assert.deepEqual(await journalReminder('home', s, at('2026-11-13', '18:30')), []);   // 選了休息
   assert.deepEqual(await journalReminder('home', s, at('2026-11-11', '18:30')), []);   // 沒課
 });
+
+test('記事錄整理：週末送出而且有內容才入帳，只入帳一次', async () => {
+  const { onWeeklyWritten, awardWeekly } = await import('../functions/journal.js');
+  const ledgerW = async () => (await db.collection(`${F}/ledger`).where('type', '==', 'weeklyJournal').get()).docs.map((d) => d.data());
+  const put = async (id, data, now) => {
+    const ref = db.doc(`${F}/weeklyJournals/${id}`);
+    const before = (await ref.get()).data() || null;
+    await ref.set(data, { merge: true });
+    await onWeeklyWritten('home', id, before, (await ref.get()).data(), now);
+    return (await ref.get()).data();
+  };
+  const id = 'kidA_2026-11-09';
+  let w = await put(id, { kidId: 'kidA', week: '2026-11-09', sections: { humanities: { text: '朝代' } }, status: 'done' }, at('2026-11-13'));   // 週五：還不算週末
+  assert.equal(w.awarded, undefined);
+  w = await put(id, { sections: { humanities: { text: '朝代與科舉' } } }, at('2026-11-14'));   // 週六再改一次 → 入帳
+  assert.equal(w.awarded, 3);
+  await put(id, { sections: { project: { text: '更多' } } }, at('2026-11-15'));
+  assert.equal(await awardWeekly('home', id, at('2026-11-15')), 0);
+  assert.equal((await ledgerW()).length, 1);
+  assert.ok((await logs()).some((m) => m.title === '📒 記事錄整理 +3 點'));
+  w = await put('kidA_2026-11-02', { kidId: 'kidA', week: '2026-11-02', sections: { humanities: { text: 'x' } }, status: 'done' }, at('2026-11-14'));   // 上週的
+  assert.equal(w.awarded, undefined);
+  w = await put('kidA_2026-11-16', { kidId: 'kidA', week: '2026-11-16', sections: { humanities: { text: ' ' } }, status: 'done' }, at('2026-11-21'));    // 沒內容
+  assert.equal(w.awarded, undefined);
+  w = await put('kidB_2026-11-09', { kidId: 'kidB', week: '2026-11-09', sections: { humanities: { text: 'x' } }, status: 'done' }, at('2026-11-14'));   // 沒開啟
+  assert.equal(w.awarded, undefined);
+  assert.equal((await ledgerW()).length, 1);
+});

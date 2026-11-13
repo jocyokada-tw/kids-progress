@@ -15,11 +15,12 @@ import { mountSettings } from './views/settings.js';
 import { mountMessages } from './views/messages.js';
 import { mountWords } from './views/words.js';
 import { mountJournal } from './views/journal.js';
+import { mountWeekly } from './views/weekly.js';
 import { initNet, showUpdateBar } from './net.js';
 import { refreshPushToken } from './push.js';
 
 const appEl = document.getElementById('app');
-const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, points: mountPoints, settings: mountSettings };
+const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, weekly: mountWeekly, points: mountPoints, settings: mountSettings };
 
 let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
 let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }

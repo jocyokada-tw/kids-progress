@@ -1,6 +1,6 @@
 import { state, setState, KIDS, COLORS, EMOJIS, member, memberName, memberColor, subjects, notifySettings } from '../state.js';
 import { mountPushCard } from './push-card.js';
-import { esc, modal, toast, showError, chipChecks, chipRadios, confirmDialog } from '../ui.js';
+import { esc, modal, toast, showError, chipChecks, chipRadios, confirmDialog, saveFile } from '../ui.js';
 import { go } from '../router.js';
 import { saveMember, saveSettings, saveGoal, changePin, forgetMomOnThisDevice } from '../store/family.js';
 import { watchRewards, saveReward, archiveReward } from '../store/rewards.js';
@@ -11,7 +11,9 @@ import { isValidPin } from '../utils/crypto.js';
 import { needOnline } from '../net.js';
 import { REVIEW_TYPES, WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordList, loadListWords, saveListWords, parseWords, wordsToText } from '../store/words.js';
 import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
-import { journalSettings, CATEGORIES } from '../utils/journal.js';
+import { journalSettings, CATEGORIES, MOOD_EMOJI } from '../utils/journal.js';
+import { semesterRange, notesCsv, weekliesCsv } from '../utils/weekly.js';
+import { loadPrompts, savePrompts, resetPrompts, getNotesOnce, getWeekliesOnce } from '../store/journal.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
 const wdLabel = (wds) => {
@@ -358,10 +360,113 @@ export function mountSettings(el) {
           <label class="field"><span>補寫少給幾點</span><input name="lateDeduct" type="number" inputmode="numeric" min="0" max="99" value="${c.lateDeduct}"></label>
           <label class="field"><span>溫和提醒時間</span>${timeSelect('reminderTime', c.reminderTime)}</label>
         </div>
+        <div class="field-row">
+          <label class="field"><span>週末記事錄整理點數</span><input name="weeklyPoints" type="number" inputmode="numeric" min="0" max="99" value="${c.weeklyPoints}"></label>
+          <label class="field"><span>連續幾週提示我</span><input name="hintWeeks" type="number" inputmode="numeric" min="1" max="8" value="${c.hintWeeks}"></label>
+        </div>
         <div class="field"><span>輕鬆版的日子（只顯示基本版，可按「想多寫一點」）</span>${chipChecks('light', WD_ORDER.map((d) => ({ value: String(d), label: '週' + WEEKDAYS[d] })), (c.lightWeekdays || []).map(String))}</div>
         <p class="field-hint">基本＝心情＋學到；進階＝再寫「有趣的是」或「我想知道」其中一項；完整＝兩項都寫。點數只看有沒有填，送出後自動入帳，不用核可。補寫可以補同一週的上課日。</p>
         <button class="btn btn-primary" type="submit">儲存課後小記設定</button>
-      </form>`;
+      </form>
+      <p class="field-hint">「連續幾週提示我」：同一類課連續幾週都出現「沒興趣／不喜歡／跟不上」的回應時，在小記頁的「這週摘要」提示你（孩子看不到）。</p>
+      <hr><div class="btn-row" style="justify-content:flex-start">
+        <button class="btn btn-ghost" data-act="jPrompts">✏️ 編輯提示文字</button>
+        <button class="btn btn-ghost" data-act="jExport">📤 匯出（CSV）</button></div>`;
+  }
+
+  // 提示文字：存在 meta/journalPrompts（沒有就用 data/journalPrompts.json）
+  async function editPrompts() {
+    const P = structuredClone(await loadPrompts());
+    delete P.updatedAt;
+    const inp = (name, label, v) => `<label class="field"><span>${label}</span><input name="${name}" maxlength="120" value="${esc(v || '')}"></label>`;
+    const area = (name, label, v, rows = 4) => `<label class="field"><span>${label}</span><textarea name="${name}" rows="${rows}">${esc(v || '')}</textarea></label>`;
+    const tiredMsg = (f) => f.message || (f.note || '').replace(/^.*只顯示：/, '');
+    const bf = P.boringFlow || {};
+    const POOL = { humanities: '📜 人文', math_science: '🔬 數理', project: '🧭 專題研究', general: '通用（不夠時使用）', lowPressure: '低壓力（覺得難或沒興趣時）' };
+    const wp = P.weeklyPage || {};
+    const html = `
+      <p class="muted small">孩子看到的文字都在這裡。說法盡量正向、不責備。</p>
+      <h3>心情與追問</h3>
+      ${(P.feelings || []).map((f) => `<fieldset class="pe"><legend>${MOOD_EMOJI[f.id] || ''} ${esc(f.label)}</legend>
+        ${inp(`f.${f.id}.label`, '名稱', f.label)}
+        ${f.followUp !== null ? inp(`f.${f.id}.ref`, '細分（用「、」分開，可空白）', (f.refinements || []).join('、')) + inp(`f.${f.id}.fu`, '追問', f.followUp) + inp(`f.${f.id}.ss`, '提示句', f.sentenceStarter) : ''}
+        ${f.id === 'tired' ? inp('f.tired.msg', '顯示的話（不追問）', tiredMsg(f)) : ''}
+        ${f.useBoringFlow ? '<p class="muted small">追問在下方「覺得無聊時」</p>' : ''}</fieldset>`).join('')}
+      <h3>覺得無聊時</h3>
+      ${inp('b.q', '第一層問題', bf.firstLevelQuestion)}${inp('b.resp', '選了原因後的回應', bf.responseMessage)}
+      ${(bf.reasons || []).map((r) => `<fieldset class="pe"><legend>${esc(r.label)}</legend>${inp(`r.${r.id}.label`, '選項', r.label)}${r.secondLevel !== null ? inp(`r.${r.id}.sec`, '第二層問題', r.secondLevel) : ''}</fieldset>`).join('')}
+      ${area('b.hint', '給媽媽的提示（孩子看不到）', bf.parentHint, 2)}
+      <h3>週末整理的開頭句（一行一句）</h3>
+      ${Object.keys(P.weeklyStarters || {}).map((k) => area(`s.${k}`, POOL[k] || k, (P.weeklyStarters[k] || []).map((x) => x.text).join('\n'), 5)).join('')}
+      <h3>週末整理頁</h3>
+      ${area('w.recall', '這週沒寫小記時的回想問題（一行一個）', (wp.recallPrompts || []).join('\n'), 3)}
+      ${inp('w.done', '完成後的話', wp.doneMessage)}`;
+    const r = await modal({
+      title: '✏️ 課後小記的提示文字', html,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'reset', label: '恢復預設', kind: 'danger' }, { id: 'ok', label: '儲存', kind: 'primary' }],
+      validate: (id, d) => {
+        if (id !== 'ok') return null;
+        if ((P.feelings || []).some((f) => !d[`f.${f.id}.label`])) return '心情名稱不能空白';
+        if ((bf.reasons || []).some((x) => !d[`r.${x.id}.label`])) return '無聊的選項不能空白';
+        if (Object.keys(P.weeklyStarters || {}).some((k) => !lines(d[`s.${k}`]).length)) return '每一組開頭句至少要一句';
+        return null;
+      }
+    });
+    if (r.id === 'reset') {
+      if (await confirmDialog('把所有提示文字恢復成預設？', { okLabel: '恢復預設', danger: true })) { await resetPrompts(); toast('已恢復預設', 'ok'); }
+      return;
+    }
+    if (r.id !== 'ok') return;
+    const d = r.data;
+    for (const f of P.feelings || []) {
+      f.label = d[`f.${f.id}.label`];
+      if (f.followUp !== null) {
+        f.refinements = (d[`f.${f.id}.ref`] || '').split(/[、,，]/).map((x) => x.trim()).filter(Boolean);
+        f.followUp = d[`f.${f.id}.fu`] || '';
+        f.sentenceStarter = d[`f.${f.id}.ss`] || '';
+      }
+      if (f.id === 'tired') f.message = d['f.tired.msg'] || '';
+    }
+    Object.assign(bf, { firstLevelQuestion: d['b.q'], responseMessage: d['b.resp'], parentHint: d['b.hint'] });
+    for (const x of bf.reasons || []) { x.label = d[`r.${x.id}.label`]; if (x.secondLevel !== null) x.secondLevel = d[`r.${x.id}.sec`] || null; }
+    P.boringFlow = bf;
+    for (const k of Object.keys(P.weeklyStarters || {})) {
+      const old = P.weeklyStarters[k] || [];
+      P.weeklyStarters[k] = lines(d[`s.${k}`]).map((text, i) => {
+        const hit = old.find((x) => x.text === text);
+        if (hit) return hit;
+        const id = `${k[0]}${Date.now().toString(36)}${i}`;
+        return { id, type: `edited_${id}`, text };   // 新句子：自己一個類型
+      });
+    }
+    P.weeklyPage = { ...wp, recallPrompts: lines(d['w.recall']), doneMessage: d['w.done'] || '' };
+    await savePrompts(P);
+    toast('提示文字已儲存', 'ok');
+  }
+  const lines = (t) => String(t || '').split(/\n/).map((x) => x.trim()).filter(Boolean);
+
+  async function exportJournal() {
+    const c = journalSettings(state.settings);
+    const [from, to] = semesterRange(todayStr());
+    const kids = c.kids.length ? c.kids : KIDS;
+    const r = await modal({
+      title: '📤 匯出課後小記',
+      html: `${kids.length > 1 ? `<div class="field"><span>孩子</span>${chipRadios('kid', kids.map((k) => ({ value: k, label: memberName(k) })), kids[0])}</div>` : `<input type="hidden" name="kid" value="${kids[0]}">`}
+        <div class="field"><span>內容</span>${chipRadios('what', [{ value: 'notes', label: '每日小記' }, { value: 'weekly', label: '記事錄整理' }], 'notes')}</div>
+        <div class="field-row"><label class="field"><span>從</span><input type="date" name="from" value="${from}"></label>
+          <label class="field"><span>到</span><input type="date" name="to" value="${to}"></label></div>
+        <p class="muted small">預設是這學期。CSV 可以用 Excel、Numbers、Google 試算表打開。</p>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '匯出', kind: 'primary' }],
+      validate: (id, d) => (id === 'ok' && !(d.from && d.to && d.from <= d.to) ? '請選擇正確的日期範圍' : null)
+    });
+    if (r.id !== 'ok') return;
+    needOnline('匯出');
+    const { kid, what, from: f, to: t } = r.data;
+    const name = `${memberName(kid)}_${what === 'notes' ? '課後小記' : '記事錄整理'}_${f}_${t}.csv`;
+    const text = what === 'notes'
+      ? notesCsv(await getNotesOnce(kid), await loadPrompts(), c, kid, f, t)
+      : weekliesCsv(await getWeekliesOnce(kid), f, t);
+    await saveFile(name, text);
   }
 
   // ---------- 通知 ----------
@@ -439,7 +544,7 @@ export function mountSettings(el) {
         await saveSettings({ journal: { ...(state.settings.journal || {}),
           kids: fd.getAll('kids').filter((k) => KIDS.includes(k)), schedule,
           points: { basic: n(d.basic, 0, 99), advanced: n(d.advanced, 0, 99), full: n(d.full, 0, 99) },
-          lateDeduct: n(d.lateDeduct, 0, 99), reminderTime: d.reminderTime, lightWeekdays: fd.getAll('light').map(Number) } });
+          lateDeduct: n(d.lateDeduct, 0, 99), weeklyPoints: n(d.weeklyPoints, 0, 99), hintWeeks: n(d.hintWeeks, 1, 8), reminderTime: d.reminderTime, lightWeekdays: fd.getAll('light').map(Number) } });
         toast('課後小記設定已儲存', 'ok');
       } else if (f.id === 'notifyForm') {
         const fd = new FormData(f);
@@ -484,6 +589,8 @@ export function mountSettings(el) {
         case 'removeSubject': b.closest('.subj-row').remove(); break;
         case 'jAdd': b.closest('.jsched').querySelector('.jsched-rows').insertAdjacentHTML('beforeend', jRow({ weekday: 1, category: 'humanities', count: 1 })); break;
         case 'jRemove': b.closest('.jsched-row').remove(); break;
+        case 'jPrompts': await editPrompts(); break;
+        case 'jExport': await exportJournal(); break;
         case 'newRoutine': editRoutine(null); break;
         case 'editRoutine': editRoutine(routines.find((r) => r.id === b.dataset.id)); break;
         case 'rejectReq': await rejectPair(b.dataset.id); break;
