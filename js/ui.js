@@ -127,3 +127,29 @@ export function subjectChips(name, list, selected = '') {
     <label class="chip subj"><input type="radio" name="${name}" value="${esc(s.id)}" ${selected === s.id ? 'checked' : ''}>
       <span style="--s:${esc(s.color)}"><i class="dot"></i>${esc(s.name)}</span></label>`).join('')}</div>`;
 }
+
+/** 把文字存成檔案：手機上用分享選單（可存到檔案、傳給自己），不行就直接下載 */
+export async function saveFile(name, text, type = 'text/csv') {
+  const file = new File([text], name, { type });
+  if (navigator.canShare && navigator.canShare({ files: [file] })) {
+    try { await navigator.share({ files: [file], title: name }); return; } catch (e) { if (e && e.name === 'AbortError') return; }
+  }
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(file);
+  a.download = name;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+
+/** 複製文字（舊版瀏覽器用隱藏的文字框） */
+export async function copyText(text) {
+  try { await navigator.clipboard.writeText(text); return true; } catch {}
+  const t = document.createElement('textarea');
+  t.value = text; t.style.position = 'fixed'; t.style.opacity = '0';
+  document.body.appendChild(t); t.select();
+  let ok = false;
+  try { ok = document.execCommand('copy'); } catch {}
+  t.remove();
+  return ok;
+}

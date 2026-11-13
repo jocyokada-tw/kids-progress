@@ -30,6 +30,8 @@
 | `tts/{雜湊}` | 雲端語音快取（伺服器寫入，裝置只能讀單筆） | `text`, `audio`（base64 MP3）, `createdAt` |
 | `meta/ttsUsage` | 雲端語音每日用量（伺服器專用） | `date`, `chars` |
 | `classNotes/{kidId}_{日期}` | 課後小記（資優班上課日） | 孩子寫：`skipped`（今天休息）, `memorable`（最有印象的課：`humanities\|math_science\|project`）, `mood`, `moodDetail`, `followUpAnswer`, `boringReason`, `boringAnswer`, `learned`, `interesting`, `question`, `projectProgress`, `extraCategory`, `extraText`；伺服器寫：`level: basic\|advanced\|full`, `awarded`（已入帳點數）, `onTheDay`；媽媽寫：`momComment`, `momCommentAt` |
+| `weeklyJournals/{kidId}_{週一}` | 週末記事錄整理 | 孩子寫：`sections: { 類別: { text } }`, `status: draft\|done`, `submittedAt`；伺服器寫：`awarded`（週六、週日送出且有內容才入帳一次） |
+| `customStarters/{kidId}` | 孩子自訂的開頭句 | `list: [{ id, category, text }]` |
 | `meta/journalPrompts` | 課後小記的提示文字（可省略，沒有就用 `data/journalPrompts.json`） | 和 `data/journalPrompts.json` 相同格式 |
 | `threads/{kidId}` | 對話串的已讀時間 | `momReadAt`, `kidReadAt` |
 | `threads/{kidId}/messages/{id}` | 留言 | `from: mom\|kid`, `text`（最多 500 字）, `createdAt` |
@@ -101,10 +103,10 @@
 | 未配對裝置 | 只能查詢家庭是否存在、送出／取消**自己的**配對申請、讀自己的裝置文件 |
 | 第一台裝置 | 家庭尚未存在時，可以用一次批次寫入建立家庭並成為媽媽裝置（家庭已存在就不行） |
 | 小孩裝置 | 只能讀寫 `kids` 清單內小孩的資料；本週進度只能把還沒排的排到同一週的某一天，排定後不能自己改；課程、兌換項目只能看；兌換申請的點數必須等於兌換項目的點數，只能取消自己申請中的項目，不能自己核可；留言只能以「小孩」身分發言、不能修改或刪除，已讀只能更新 `kidReadAt`；新增的進度必須是 `pending`、0 點；只能修改／刪除自己尚未確認的進度；清單項目只能勾選送出（`review` 改成 `pending`），送出後不能自己取消、不能自己核可，只有媽媽能退回；補建清單項目時，點數必須和媽媽設定的來源一致；**不能**寫入流水帳、設定、成員、固定事項；讀不到 PIN 雜湊 |
-| 課後小記 | 孩子只能寫自己的小記（文件 ID 必須是 `{kidId}_{日期}`），不能寫 `level`／`awarded`／`onTheDay`（點數由伺服器依填寫內容計算入帳：只加不扣、只限同一週今天以前的上課日），不能寫媽媽留言；媽媽也不能改點數欄位 |
+| 課後小記 | 孩子只能寫自己的小記（文件 ID 必須是 `{kidId}_{日期}`），不能寫 `level`／`awarded`／`onTheDay`（點數由伺服器依填寫內容計算入帳：只加不扣、只限同一週今天以前的上課日），不能寫媽媽留言；媽媽也不能改點數欄位。記事錄整理同樣只能寫自己的，`awarded` 只有伺服器能寫 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 38 項自動測試驗證上述規則；`tests/srs.test.mjs` 有 7 項測試驗證單字解析與遺忘曲線排程；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
+`tests/rules.test.mjs` 有 39 項自動測試驗證上述規則；`tests/srs.test.mjs` 有 7 項測試驗證單字解析與遺忘曲線排程；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
 
 **推播**：每台裝置開啟通知後，把權杖寫到 `pushTokens/{自己的uid}`（只能寫自己的、任何用戶端都讀不到）。
 伺服器依 `devices` 判斷對象：媽媽的通知送到 `isMom` 的裝置；小孩的通知送到配對給該小孩、且不是媽媽的裝置。

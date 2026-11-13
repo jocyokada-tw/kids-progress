@@ -1,4 +1,4 @@
-import { query, where, onSnapshot, getDoc, setDoc, updateDoc, serverTimestamp } from '../firebase.js';
+import { query, where, onSnapshot, getDoc, getDocs, setDoc, updateDoc, deleteDoc, serverTimestamp } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
 
 // 課後小記：classNotes/{kidId}_{date}
@@ -44,3 +44,46 @@ export function loadPrompts() {
   })().catch((e) => { promptsP = null; throw e; });
   return promptsP;
 }
+
+/** 媽媽儲存提示文字（存在 meta/journalPrompts，覆蓋 data/journalPrompts.json） */
+export async function savePrompts(data) {
+  await setDoc(fdoc('meta', 'journalPrompts'), { ...data, updatedAt: serverTimestamp() });
+  promptsP = null;
+}
+/** 恢復成 data/journalPrompts.json 的內容 */
+export async function resetPrompts() {
+  await deleteDoc(fdoc('meta', 'journalPrompts'));
+  promptsP = null;
+}
+export async function defaultPrompts() {
+  const r = await fetch('./data/journalPrompts.json', { cache: 'no-cache' });
+  return r.json();
+}
+
+// ---- 週末記事錄整理：weeklyJournals/{kidId}_{週一} ----
+// 孩子寫：sections: { 類別: { text } }, status: draft|done, submittedAt；伺服器寫：awarded
+export const weeklyId = (kidId, week) => `${kidId}_${week}`;
+export function watchWeekly(kidId, week, cb, onErr) {
+  return onSnapshot(fdoc('weeklyJournals', weeklyId(kidId, week)), (s) => cb(s.exists() ? { id: s.id, ...s.data() } : null), onErr);
+}
+export function watchWeeklies(kidId, cb, onErr) {
+  return onSnapshot(query(fcol('weeklyJournals'), where('kidId', '==', kidId)), (s) => cb(docs(s).sort((a, b) => b.week.localeCompare(a.week))), onErr);
+}
+export function saveWeeklyText(kidId, week, category, text) {
+  return setDoc(fdoc('weeklyJournals', weeklyId(kidId, week)),
+    { kidId, week, sections: { [category]: { text: String(text || '').slice(0, 3000) } }, updatedAt: serverTimestamp() }, { merge: true });
+}
+export function setWeeklyStatus(kidId, week, status) {
+  return setDoc(fdoc('weeklyJournals', weeklyId(kidId, week)),
+    { kidId, week, status, ...(status === 'done' ? { submittedAt: serverTimestamp() } : {}), updatedAt: serverTimestamp() }, { merge: true });
+}
+
+// ---- 孩子自訂的開頭句：customStarters/{kidId} = { list: [{ id, category, text }] } ----
+export function watchCustomStarters(kidId, cb, onErr) {
+  return onSnapshot(fdoc('customStarters', kidId), (s) => cb((s.exists() && s.data().list) || []), onErr);
+}
+export const saveCustomStarters = (kidId, list) => setDoc(fdoc('customStarters', kidId), { list: list.slice(0, 50) });
+
+/** 匯出用：讀一次全部 */
+export const getNotesOnce = async (kidId) => docs(await getDocs(query(fcol('classNotes'), where('kidId', '==', kidId))));
+export const getWeekliesOnce = async (kidId) => docs(await getDocs(query(fcol('weeklyJournals'), where('kidId', '==', kidId))));

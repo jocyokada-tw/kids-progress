@@ -1,7 +1,7 @@
 // 課後小記：依填寫內容自動入帳（不用媽媽核可）、媽媽留言通知、上課日的溫和提醒。
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, notify, taipeiNow, inQuiet, deliver, md } from './core.js';
-import { journalSettings, levelOf, pointsFor, classDay, weekStartOf } from './journal-logic.js';
+import { journalSettings, levelOf, pointsFor, classDay, weekStartOf, hasClasses, weekendWindow } from './journal-logic.js';
 
 const LEVEL_LABEL = { basic: '基本', advanced: '進階', full: '完整' };
 
@@ -89,4 +89,37 @@ export async function journalReminder(fid, s, now) {
     sent.push(kidId);
   }
   return sent;
+}
+
+// ---------- 週末記事錄整理 ----------
+/** 週末送出（status=done）而且有寫內容 → 入帳一次（weeklyJournal_{id}）。回傳入帳點數 */
+export async function awardWeekly(fid, id, now = taipeiNow()) {
+  const fam = db.doc(`families/${fid}`);
+  const ref = fam.collection('weeklyJournals').doc(id);
+  const cfg = journalSettings((await fam.collection('meta').doc('settings').get()).data() || {});
+  const pts = Number(cfg.weeklyPoints) || 0;
+  return db.runTransaction(async (tx) => {
+    const s = await tx.get(ref);
+    if (!s.exists) return 0;
+    const w = s.data();
+    if (w.status !== 'done' || w.awarded || id !== `${w.kidId}_${w.week}` || !(pts > 0)) return 0;
+    if (!hasClasses(cfg, w.kidId) || !weekendWindow(w.week, now.date)) return 0;
+    if (!Object.values(w.sections || {}).some((x) => x && typeof x.text === 'string' && x.text.trim())) return 0;
+    const lref = fam.collection('ledger').doc(`weeklyJournal_${id}`);
+    if ((await tx.get(lref)).exists) return 0;
+    tx.set(lref, { kidId: w.kidId, amount: pts, type: 'weeklyJournal', date: now.date, refId: id, createdBy: 'server', createdAt: FieldValue.serverTimestamp(),
+      title: `📒 記事錄整理 ${md(w.week)} 那週` });
+    tx.update(ref, { awarded: pts });
+    return pts;
+  });
+}
+
+export async function onWeeklyWritten(fid, id, before, after, now = taipeiNow()) {
+  if (!after || after.status !== 'done' || after.awarded) return;   // 只在送出、還沒入帳時處理（自己寫入 awarded 後不會再觸發入帳）
+  const add = await awardWeekly(fid, id, now);
+  if (add > 0) {
+    await notify(fid, after.kidId, 'itemReview', {
+      title: `📒 記事錄整理 +${add} 點`, body: '這週的課都整理好了，辛苦了！', url: `#/k/${after.kidId}/weekly`, tag: `weekly-journal-${after.kidId}`
+    }, null, now);
+  }
 }
