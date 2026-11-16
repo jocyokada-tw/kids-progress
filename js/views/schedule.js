@@ -110,6 +110,31 @@ export function mountSchedule(el, { kid }) {
   }
 
   const weekDays = (t) => range(t.week, 7);
+  /** 媽媽可以把本週進度移到的週：從「這一項原本那週」和「本週」較早的一週，到本週之後 4 週 */
+  function weekOptions(cur) {
+    const thisW = weekStart(today);
+    const from = cur && cur < thisW ? cur : thisW;
+    const out = [];
+    for (let w = from; w <= addDays(thisW, 28); w = addDays(w, 7)) {
+      const tag = w === thisW ? '本週 ' : w === addDays(thisW, 7) ? '下週 ' : w < thisW ? '已過 ' : '';
+      out.push({ value: w, label: `${tag}${labelMD(w)}–${labelMD(addDays(w, 6))}` });
+    }
+    return out;
+  }
+  const weekSelect = (cur) => `<select class="select" name="week">${weekOptions(cur).map((o) => `<option value="${o.value}" ${o.value === cur ? 'selected' : ''}>${esc(o.label)}</option>`).join('')}</select>`;
+
+  /** 把還沒排日期的本週進度換到其他週 */
+  async function moveToWeek(t) {
+    const r = await modal({
+      title: `「${t.title}」換到哪一週？`,
+      html: `<label class="field"><span>哪一週</span>${weekSelect(t.week)}</label><p class="muted small">換週後孩子要在新的那週自己排日期。</p>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '換週', kind: 'primary' }],
+      validate: (id, d) => (id === 'ok' && t.due && t.due < d.week ? `期限（${labelMD(t.due)}）早於那一週，請先修改期限` : null)
+    });
+    if (r.id !== 'ok' || r.data.week === t.week) return;
+    await moveWeeklyTo(t.id, r.data.week, addDays(r.data.week, 6));
+    toast(`已換到 ${labelMD(r.data.week)} 那週`, 'ok');
+  }
 
   async function newWeekly(date) {
     const thisWeek = weekStart(date < today ? today : date);
@@ -178,9 +203,10 @@ export function mountSchedule(el, { kid }) {
         if (r.id === 'delete' && await confirmDialog(`刪除「${t.title}」？`, { danger: true, okLabel: '刪除' })) await deleteTask(t.id);
         return;
       }
-      const r = await pickDay(t, t.week, [{ id: 'edit', label: '修改內容' }]);
+      const r = await pickDay(t, t.week, [{ id: 'edit', label: '修改內容' }, { id: 'move', label: '換到其他週' }]);
       if (r.id === 'ok') { await scheduleWeekly(t.id, r.data.date); toast(`已排在 ${labelMD(r.data.date)}`, 'ok'); }
       if (r.id === 'edit') await openMomEdit(t);
+      if (r.id === 'move') await moveToWeek(t);
     } catch (e) { showError(e); }
   }
 
@@ -269,7 +295,8 @@ export function mountSchedule(el, { kid }) {
           <label class="field"><span>日期</span><input name="date" type="date" value="${t.date}" ${t.kind === 'weekly' ? `min="${t.week}" max="${t.weekEnd}"` : ''}></label>
           <label class="field"><span>點數</span><input name="points" type="number" inputmode="numeric" min="0" max="999" value="${t.points || (t.status === 'pending' ? state.settings.defaultTaskPoints ?? 1 : 0)}"></label>
         </div>
-        ${t.kind === 'weekly' ? `<p class="field-hint" style="margin:-6px 0 12px">📦 本週進度：日期可留空讓孩子自己排，限 ${labelMD(t.week)}～${labelMD(t.weekEnd)}</p>` : ''}
+        ${t.kind === 'weekly' ? (t.itemApproved ? `<p class="field-hint" style="margin:-6px 0 12px">📦 本週進度（${labelMD(t.week)}～${labelMD(t.weekEnd)}）：已經入帳，不能換週</p>`
+          : `<label class="field"><span>📦 哪一週</span>${weekSelect(t.week)}<span class="field-hint">日期可留空讓孩子自己排；換週時，日期不在新的那週會清空，由孩子重新排。</span></label>`) : ''}
         <label class="field"><span>期限（選填）</span><input name="due" type="date" value="${esc(t.due || '')}"><span class="field-hint">有期限的作業會在期限前兩天開始提醒；過了期限還沒完成會通知媽媽。</span></label>
         <label class="field"><span>指定完成時間（選填）</span><input name="dueTime" type="time" value="${esc(t.dueTime || '')}"><span class="field-hint">超過這個時間才送出：點數減半，當天也不能拿全部完成的獎勵。時間前 30 分鐘會提醒孩子。</span></label>
         <label class="field"><span>說明</span><textarea name="note" rows="2" maxlength="200">${esc(t.note)}</textarea></label>
@@ -281,11 +308,23 @@ export function mountSchedule(el, { kid }) {
           : [{ id: 'reject', label: '退回' }],
         { id: 'ok', label: t.status === 'approved' ? '儲存' : '確認並儲存', kind: 'primary' }
       ].flat(),
+      onOpen: (w) => {
+        const sel = w.querySelector('select[name=week]');
+        const dateIn = w.querySelector('input[name=date]');
+        if (!sel || !dateIn) return;
+        sel.addEventListener('change', () => {
+          const wk = sel.value, end = addDays(wk, 6);
+          dateIn.min = wk; dateIn.max = end;
+          if (dateIn.value && (dateIn.value < wk || dateIn.value > end)) dateIn.value = '';
+        });
+      },
       validate: (id, d) => {
         if (id === 'delete' || id === 'unschedule') return null;
         if (t.kind === 'weekly') {
           if (!d.title) return '請填寫內容';
-          if (d.date && (!isDateStr(d.date) || d.date < t.week || d.date > t.weekEnd)) return '日期要在同一週內，或留空讓孩子自己排';
+          const wk = d.week || t.week;
+          if (d.date && (!isDateStr(d.date) || d.date < wk || d.date > addDays(wk, 6))) return '日期要在選的那一週內，或留空讓孩子自己排';
+          if (d.due && d.due < wk) return '期限不能早於那一週的週一';
         } else if (!d.title || !isDateStr(d.date)) return '請填寫內容與日期';
         if (!(Number(d.points) >= 0)) return '點數必須是 0 以上的數字';
         if (d.due && d.due < d.week) return '期限不能早於那一週的週一';
@@ -303,9 +342,10 @@ export function mountSchedule(el, { kid }) {
         toast('已退回，孩子可以重新排日期');
         return;
       }
-      const patch = { title: r.data.title, date: r.data.date, note: r.data.note, momNote: r.data.momNote, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0), due: r.data.due || '', dueTime: r.data.dueTime || '' };
+      const moved = t.kind === 'weekly' && r.data.week && r.data.week !== t.week;
+      const patch = { ...(moved ? { week: r.data.week, weekEnd: addDays(r.data.week, 6) } : {}), title: r.data.title, date: r.data.date, note: r.data.note, momNote: r.data.momNote, subject: r.data.subject || '', points: Math.round(Number(r.data.points) || 0), due: r.data.due || '', dueTime: r.data.dueTime || '' };
       await momSaveTask(t.id, patch, r.id === 'reject' ? 'rejected' : 'approved');
-      toast(r.id === 'reject' ? '已退回' : '已確認', 'ok');
+      toast(r.id === 'reject' ? '已退回' : moved ? `已換到 ${labelMD(r.data.week)} 那週${r.data.date ? '' : '，等孩子排日期'}` : '已確認', 'ok');
     } catch (e) { showError(e); }
   }
 
