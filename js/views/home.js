@@ -12,7 +12,7 @@ import { watchWordLists, watchSession } from '../store/words.js';
 import { goalHtml } from './goal.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
-import { journalSettings, usesJournal, writableDates, isClassDay } from '../utils/journal.js';
+import { journalSettings, usesJournal, writableDates, isClassDay, catsOn, needsWriting } from '../utils/journal.js';
 import { watchNotes, watchWeekly } from '../store/journal.js';
 import { weekClasses, isWeekend } from '../utils/weekly.js';
 import { noteStatus } from './journal.js';
@@ -134,14 +134,14 @@ export function mountHome(el, { kid }) {
     const jdates = writableDates(jcfg, kid, today);
     unsubs.push(watchNotes(kid, (notes) => {
       const by = new Map(notes.map((n) => [n.date, n]));
-      const open = jdates.filter((d) => !by.has(d));
+      const open = jdates.filter((d) => needsWriting(by.get(d), catsOn(jcfg, kid, d)));
       const classToday = isClassDay(jcfg, kid, today);
       const c = $('#journalCard');
       c.hidden = !classToday && !open.length;
       if (c.hidden) return;
       const hm = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Taipei', hour: '2-digit', minute: '2-digit', hour12: false }).format(new Date());
-      const st = classToday ? noteStatus(by.get(today)) : null;
-      const gentle = !isMom() && classToday && !by.has(today) && hm >= (jcfg.reminderTime || '18:30');
+      const st = classToday ? noteStatus(by.get(today), catsOn(jcfg, kid, today)) : null;
+      const gentle = !isMom() && classToday && needsWriting(by.get(today), catsOn(jcfg, kid, today)) && hm >= (jcfg.reminderTime || '18:30');
       const status = classToday ? `今天：${st.text}` : '';
       const makeup = open.filter((d) => d !== today).length;
       c.innerHTML = `<div class="push-card"><span style="font-size:2rem">📝</span>

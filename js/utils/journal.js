@@ -84,3 +84,48 @@ export function feelingInText(text) {
   for (const [id, words] of KEYWORDS) if (words.some((w) => t.includes(w))) return id;
   return null;
 }
+
+// ---------- 每一類課各自紀錄 ----------
+// 新格式：note.classes = { 類別: { mood, moodDetail, followUpAnswer, boringReason, boringAnswer, learned, interesting, question, projectProgress } }
+// 舊格式（最有印象的一堂寫在最外層＋「也想記另一堂」一句話）讀取時轉成新格式，已入帳的點數不變。
+export const CLASS_FIELDS = ['mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer', 'learned', 'interesting', 'question', 'projectProgress'];
+
+/** 每一類課的紀錄。cats：那天的類別（舊格式沒有記錄類別時用第一個） */
+export function noteClasses(note, cats = []) {
+  if (!note) return {};
+  if (note.classes && typeof note.classes === 'object') return note.classes;
+  const out = {};
+  if (note.mood || filled(note.learned)) {
+    const e = {};
+    for (const k of CLASS_FIELDS) if (note[k] != null) e[k] = note[k];
+    out[note.memorable || cats[0] || 'project'] = e;
+  }
+  if (note.extraCategory && filled(note.extraText) && !out[note.extraCategory]) out[note.extraCategory] = { learned: note.extraText, short: true };
+  return out;
+}
+
+/** 那天每一類課的完成層級：{ 類別: level|null } */
+export function classLevels(note, cats) {
+  const c = noteClasses(note, cats);
+  return Object.fromEntries(cats.map((k) => [k, note && !note.skipped ? levelOf(c[k]) : null]));
+}
+
+/** 那天應得的點數（每一類課分開算再加總） */
+export function notePoints(note, cats, onTheDay, cfg) {
+  return Object.values(classLevels(note, cats)).reduce((s, lv) => s + pointsFor(lv, onTheDay, cfg), 0);
+}
+
+/** 那天寫了幾類課：{ written, total } */
+export function dayProgress(note, cats) {
+  return { written: Object.values(classLevels(note, cats)).filter(Boolean).length, total: cats.length };
+}
+
+/** 某天的類別 id */
+export const catsOn = (cfg, kidId, date) => classesOn(cfg, kidId, date).map((c) => c.category);
+
+/** 還可以寫的日子：沒寫、或還有某一堂沒寫（選了休息的不算） */
+export function needsWriting(note, cats) {
+  if (!note) return true;
+  if (note.skipped) return false;
+  return dayProgress(note, cats).written < cats.length;
+}

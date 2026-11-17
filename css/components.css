@@ -556,3 +556,8 @@ button.cloze { background: #f4eee6; border-radius: 14px; padding: 10px 14px; min
 }
 fieldset.pe { border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px 0; margin: 0 0 10px; }
 fieldset.pe legend { padding: 0 6px; font-weight: 600; }
+/* 課後小記：每一類課一個區塊 */
+.jclass { margin: 14px 0 6px; padding: 12px; border: 2px solid var(--line); border-radius: 16px; background: color-mix(in srgb, var(--kid) 3%, white); }
+.jclass-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
+.jclass-head h3 { margin: 0; font-size: 1.1rem; }
+.jcard .jclass { background: transparent; padding: 10px 12px; }

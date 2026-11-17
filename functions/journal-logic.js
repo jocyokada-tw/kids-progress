@@ -53,3 +53,33 @@ export function weekendWindow(week, today) {
   const add = (n) => { const x = new Date(week + 'T00:00:00Z'); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
   return today >= add(5) && today <= add(6);
 }
+
+// ---------- 每一類課各自紀錄（和 js/utils/journal.js 相同） ----------
+const CATEGORY_ORDER = ['humanities', 'math_science', 'project'];
+export const CLASS_FIELDS = ['mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer', 'learned', 'interesting', 'question', 'projectProgress'];
+/** 那天上的課的類別（依類別順序） */
+export function catsOn(cfg, kidId, date) {
+  if (!(cfg.kids || []).includes(kidId)) return [];
+  const wd = weekdayOf(date);
+  const set = new Set(((cfg.schedule && cfg.schedule[kidId]) || []).filter((c) => Number(c.weekday) === wd && Number(c.count) > 0).map((c) => c.category));
+  return CATEGORY_ORDER.filter((c) => set.has(c));
+}
+export function noteClasses(note, cats = []) {
+  if (!note) return {};
+  if (note.classes && typeof note.classes === 'object') return note.classes;
+  const out = {};
+  if (note.mood || filled(note.learned)) {
+    const e = {};
+    for (const k of CLASS_FIELDS) if (note[k] != null) e[k] = note[k];
+    out[note.memorable || cats[0] || 'project'] = e;
+  }
+  if (note.extraCategory && filled(note.extraText) && !out[note.extraCategory]) out[note.extraCategory] = { learned: note.extraText, short: true };
+  return out;
+}
+export function classLevels(note, cats) {
+  const c = noteClasses(note, cats);
+  return Object.fromEntries(cats.map((k) => [k, note && !note.skipped ? levelOf(c[k]) : null]));
+}
+export function notePoints(note, cats, onTheDay, cfg) {
+  return Object.values(classLevels(note, cats)).reduce((s, lv) => s + pointsFor(lv, onTheDay, cfg), 0);
+}

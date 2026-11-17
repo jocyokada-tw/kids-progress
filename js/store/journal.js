@@ -8,7 +8,7 @@ import { fcol, fdoc, docs, tsMillis } from './paths.js';
 // 只有媽媽能寫：momComment, momCommentAt
 export const noteId = (kidId, date) => `${kidId}_${date}`;
 
-export const KID_FIELDS = ['skipped', 'memorable', 'topic', 'mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer',
+export const KID_FIELDS = ['skipped', 'classes', 'memorable', 'topic', 'mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer',
   'learned', 'interesting', 'question', 'projectProgress', 'extraCategory', 'extraText'];
 
 export function watchNote(kidId, date, cb, onErr) {

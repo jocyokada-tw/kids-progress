@@ -1,4 +1,4 @@
-import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, serverTimestamp, FieldPath, deleteField } from '../firebase.js';
+import { db, query, where, onSnapshot, getDocs, getDoc, addDoc, setDoc, updateDoc, writeBatch, collection, doc, arrayUnion, increment, serverTimestamp, FieldPath, deleteField } from '../firebase.js';
 import { fcol, fdoc, docs, tsMillis } from './paths.js';
 export { makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint, REVIEW_TYPES } from '../utils/srs.js';
 export { INTERVALS, wordKey, sameSpelling, buildDict, parseWords, wordsToText, planToday, nextProgress } from '../utils/srs.js';
@@ -7,7 +7,7 @@ export { INTERVALS, wordKey, sameSpelling, buildDict, parseWords, wordsToText, p
 // wordLists/{id}            字庫：name, kind: 'cram'（補習班，有考試日）| 'general'（一般字庫）, kids[], testDate, count, active
 // wordLists/{id}/chunks/{n} 單字內容，每 200 個一份：{ words: [{ w, zh, ex }] }
 // wordProgress/{kidId}      學習進度：{ w: { [單字]: { b: 熟練度 0-6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日期 } } }
-// wordSessions/{kidId}_{日期} 當天的練習：newWords, reviewWords, wrong[], finished, perfect
+// wordSessions/{kidId}_{日期} 當天的練習：newWords, reviewWords, wrong[], finished, perfect, practice（額外練習次數）, practiceLog[]
 export const WORD_DEFAULTS = { perDay: 5, points: 2, perfectBonus: 2, order: 'random' };
 const CHUNK = 200;
 
@@ -83,6 +83,10 @@ export const startSession = (kidId, date, newWords, reviewWords) => setDoc(fdoc(
 });
 /** 第一次答錯就記下來（中途離開重來也不會消失，「一次全過」才算數） */
 export const recordWrong = (kidId, date, key) => updateDoc(fdoc('wordSessions', sessionId(kidId, date)), { wrong: arrayUnion(key) });
+/** 額外練習完成一次：次數＋1，並記下練了什麼（mode: wrong|all）、幾個字、答錯幾次。不影響點數與學習進度 */
+export const recordPractice = (kidId, date, { mode, words, misses }) => updateDoc(fdoc('wordSessions', sessionId(kidId, date)), {
+  practice: increment(1), practiceLog: arrayUnion({ mode, words, misses, at: Date.now() })
+});
 export const finishSession = (kidId, date, perfect) => updateDoc(fdoc('wordSessions', sessionId(kidId, date)), { finished: true, perfect, finishedAt: serverTimestamp() });
 
 /** 載入某個小孩的所有字庫（含單字） */

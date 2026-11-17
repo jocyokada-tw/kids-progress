@@ -52,8 +52,7 @@ export function mountWeekly(el, { kid, arg }) {
         <ul class="wprompts">${weeklyPage(prompts).recallPrompts.map((p) => `<li>${esc(p)}</li>`).join('')}</ul></div>`;
     }
     return `<div class="wrecall"><p class="muted small">這週的小記</p><ul class="wnotes">${list.map((n) => {
-      const parts = n.extraCategory === c && n.memorable !== c ? [['✏️', n.extraText]]
-        : [['📚', n.learned], ['✨', n.interesting], ['❓', n.question], ['🧭', n.projectProgress]];
+      const parts = [['📚', n.learned], ['✨', n.interesting], ['❓', n.question], ['🧭', n.projectProgress]];
       return `<li><span class="muted small">${labelMD(n.date)}</span> ${parts.filter(([, v]) => filled(v)).map(([i, v]) => `${i} ${esc(v)}`).join('　')}</li>`;
     }).join('')}</ul></div>`;
   };

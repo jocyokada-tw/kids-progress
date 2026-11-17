@@ -6,7 +6,7 @@ import { isLateDone, isOverdueNow, latePoints } from '../utils/timed.js';
 import { needOnline } from '../net.js';
 import { go } from '../router.js';
 import { getSession, WORD_DEFAULTS } from '../store/words.js';
-import { journalSettings, isClassDay, classesOn, categoryOf, canWrite } from '../utils/journal.js';
+import { journalSettings, isClassDay, classesOn, categoryOf, canWrite, needsWriting } from '../utils/journal.js';
 import { watchNote } from '../store/journal.js';
 import { noteStatus } from './journal.js';
 
@@ -31,8 +31,8 @@ export function mountChecklistPanel(el, { kid, date }) {
   let note;
   const drawNote = () => {
     if (!hasNote || note === undefined) { noteEl.innerHTML = ''; return; }
-    const st = noteStatus(note);
-    const open = !note && canWrite(jcfg, kid, date, todayStr());
+    const st = noteStatus(note, classesOn(jcfg, kid, date).map((c) => c.category));
+    const open = needsWriting(note, classesOn(jcfg, kid, date).map((c) => c.category)) && canWrite(jcfg, kid, date, todayStr());
     noteEl.innerHTML = `<button class="journal-row" data-act="journal">
       <span class="journal-icon">📝</span>
       <span class="grow"><strong>課後小記</strong><br><span class="muted small">${classesOn(jcfg, kid, date).map((c) => categoryOf(c.category).emoji + categoryOf(c.category).label).join('、')}</span></span>
@@ -85,7 +85,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     }
     if (!s) return '<span class="tag">單字</span>';
     const bonus = ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).perfectBonus;
-    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}`;
+    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}${s.practice ? `<span class="tag">🔁 額外練習 ${s.practice} 次</span>` : ''}`;
   }
 
   function row(it) {

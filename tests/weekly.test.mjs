@@ -51,7 +51,7 @@ test('這週覺得難或沒興趣 → 第一組一定有低壓力的開頭句', 
   }
 });
 
-test('這週和某類課有關的小記：最有印象的、也想記另一堂的', () => {
+test('這週某類課的小記：新格式每堂各自；舊格式（最有印象＋另一堂一句話）也讀得到', () => {
   const notes = [
     { date: '2026-11-10', memorable: 'math_science', learned: 'a', extraCategory: 'project', extraText: 'b' },
     { date: '2026-11-12', memorable: 'humanities', learned: 'c' },
@@ -59,7 +59,10 @@ test('這週和某類課有關的小記：最有印象的、也想記另一堂�
     { date: '2026-11-03', memorable: 'math_science', learned: 'old' }
   ];
   assert.deepEqual(notesFor(notes, W, 'math_science').map((n) => n.learned), ['a']);
-  assert.deepEqual(notesFor(notes, W, 'project').map((n) => n.extraText), ['b']);
+  assert.deepEqual(notesFor(notes, W, 'project').map((n) => n.learned), ['b']);
+  const nw = [{ date: '2026-11-12', classes: { humanities: { mood: 'fun', learned: '朝代' }, project: { mood: 'happy', learned: '題目', projectProgress: '查資料' } } }];
+  assert.deepEqual(notesFor(nw, W, 'humanities').map((n) => [n.date, n.learned]), [['2026-11-12', '朝代']]);
+  assert.deepEqual(notesFor(nw, W, 'project').map((n) => n.projectProgress), ['查資料']);
 });
 
 test('每週摘要', () => {
@@ -89,13 +92,17 @@ test('學期範圍與 CSV', () => {
   assert.deepEqual(semesterRange('2027-03-01'), ['2027-02-01', '2027-07-31']);
   const csv = notesCsv([
     { date: '2026-11-10', memorable: 'math_science', mood: 'boring', boringReason: 'too_hard', learned: '分數, "通分"', awarded: 1, onTheDay: false },
+    { date: '2026-11-12', classes: { humanities: { mood: 'fun', learned: '朝代', interesting: 'a', question: 'b' }, project: { mood: 'tired', learned: '題目' } }, awarded: 4 },
+    { date: '2026-11-13', skipped: true },
     { date: '2026-07-01', learned: 'old' }
   ], prompts, cfg, 'kidA', '2026-08-01', '2027-01-31');
-  assert.ok(csv.startsWith('﻿日期,星期'));
+  assert.ok(csv.startsWith('﻿日期,星期,課程,心情'));
   const lines = csv.trim().split('\r\n');
-  assert.equal(lines.length, 2);
-  assert.ok(lines[1].startsWith('2026-11-10,二,數理、專題研究,數理,無聊,,,這個有點難，我跟不太上,,"分數, ""通分""",'), lines[1]);
-  assert.ok(lines[1].includes(',基本,1,是,,'));
+  assert.equal(lines.length, 5);
+  assert.equal(lines[1], '2026-11-10,二,數理,無聊,,,這個有點難，我跟不太上,,"分數, ""通分""",,,,基本,1,是,,');
+  assert.equal(lines[2], '2026-11-12,四,人文,好玩,,,,,朝代,a,b,,完整,4,,,');
+  assert.equal(lines[3], '2026-11-12,四,專題研究,累,,,,,題目,,,,基本,4,,,');
+  assert.equal(lines[4], '2026-11-13,五,數理,,,,,,,,,,,0,,是,');
   const w = weekliesCsv([{ week: W, status: 'done', awarded: 3, sections: { humanities: { text: '朝代' }, project: { text: ' ' } } }], '2026-08-01', '2027-01-31');
   assert.deepEqual(w.trim().split('\r\n').slice(1), ['2026-11-09,人文,朝代,是,3']);
 });

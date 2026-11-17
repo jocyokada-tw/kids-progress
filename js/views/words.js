@@ -6,7 +6,7 @@ import { speak, canPlaySound, stopSpeaking, englishVoices, currentVoice, setVoic
 import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
+  startSession, recordWrong, recordPractice, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
   makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
@@ -67,6 +67,12 @@ export function mountWords(el, { kid }) {
           <div class="hero-sub">${session.perfect ? `一次全對！媽媽核可後多 +${cfg.perfectBonus} 點` : `有 ${session.wrong.length} 個字要再加油，之後會再複習`}</div>
           <p class="muted small">已經學過 ${learned} 個字${streak > 1 ? `・連續 ${streak} 天 🔥` : ''}</p>
         </section>
+        <section class="card"><h2>🔁 額外練習</h2>
+          <p class="muted small">想再熟一點就多練幾次！額外練習不影響點數、也不會改變今天的結果和複習時間。</p>
+          <div class="btn-row" style="justify-content:flex-start">
+            ${session.wrong.length ? `<button class="btn btn-primary" data-act="practice" data-mode="wrong">再練答錯的字（${session.wrong.length}）</button>` : ''}
+            <button class="btn ${session.wrong.length ? 'btn-ghost' : 'btn-primary'}" data-act="practice" data-mode="all">今天的字全部再練一次（${words.length}）</button>
+          </div>${session.practice ? `<p class="muted small">今天已經額外練習 ${session.practice} 次 💪</p>` : ''}</section>
         <section class="card"><h2>今天的單字</h2>${wordRows(words, session.wrong)}</section>`;
     }
     const total = p.newWords.length + p.reviewWords.length;
@@ -144,6 +150,16 @@ export function mountWords(el, { kid }) {
     return n;
   }
 
+  /** 媽媽看的額外練習說明：「・額外練習 2 次（答錯的字 1 次、全部 1 次；最後一次全對）」 */
+  function practiceText(s) {
+    if (!s || !s.practice) return '';
+    const log = s.practiceLog || [];
+    const w = log.filter((x) => x.mode === 'wrong').length, a = log.filter((x) => x.mode === 'all').length;
+    const last = log.length ? log.reduce((m, x) => (x.at > m.at ? x : m)) : null;
+    const parts = [w ? `答錯的字 ${w} 次` : '', a ? `全部 ${a} 次` : ''].filter(Boolean).join('、');
+    return `<br>🔁 額外練習 <strong>${s.practice}</strong> 次${parts ? `（${parts}）` : ''}${last ? `<span class="muted small">・最後一次${last.misses ? `答錯 ${last.misses} 次` : '全對 👍'}</span>` : ''}`;
+  }
+
   function momHtml(learned) {
     const dict = dictOf();
     const due = Object.entries(progress).filter(([k, p]) => dict.has(k) && p.d && p.d <= today).length;
@@ -156,7 +172,8 @@ export function mountWords(el, { kid }) {
           <div class="stat"><span class="stat-num">${due}</span><span class="muted small">今天到期複習</span></div>
           <div class="stat"><span class="stat-num">${streakDays()}</span><span class="muted small">連續天數</span></div>
         </div>
-        <p><strong>今天：</strong>${todayState}${session ? ' <button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button>' : ''}</p>
+        <p><strong>今天：</strong>${todayState}${practiceText(session)}</p>
+        ${session ? '<div class="btn-row" style="justify-content:flex-start"><button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button></div>' : ''}
         ${session && session.wrong.length ? wordRows(session.wrong.map((k) => dict.get(k)).filter(Boolean)) : ''}
       </section>
       ${listsProgressHtml()}
@@ -165,7 +182,7 @@ export function mountWords(el, { kid }) {
       </section>
       <section class="card"><h2>最近的練習</h2>
         ${sessions.length ? `<ul class="rows">${sessions.slice(0, 10).map((s) => `<li class="row"><span class="grow">${labelMD(s.date)}<br><span class="muted small">新字 ${s.newWords.length}・複習 ${s.reviewWords.length}</span></span>
-          <span class="tag ${!s.finished ? 'tag-wait' : s.perfect ? 'tag-ok' : ''}">${!s.finished ? '未完成' : s.perfect ? '一次全對' : `錯 ${s.wrong.length} 個`}</span></li>`).join('')}</ul>` : '<p class="empty">還沒有紀錄</p>'}
+          ${s.practice ? `<span class="tag">🔁 額外練習 ${s.practice} 次</span>` : ''}<span class="tag ${!s.finished ? 'tag-wait' : s.perfect ? 'tag-ok' : ''}">${!s.finished ? '未完成' : s.perfect ? '一次全對' : `錯 ${s.wrong.length} 個`}</span></li>`).join('')}</ul>` : '<p class="empty">還沒有紀錄</p>'}
       </section>`;
   }
 
@@ -226,6 +243,23 @@ export function mountWords(el, { kid }) {
     draw();
   }
 
+  /** 額外練習：今天的字（或只有答錯的字）再看一次、再考一次。不記錄、不影響點數與複習時間 */
+  function practice(mode) {
+    const dict = dictOf();
+    const ks = (mode === 'wrong' ? session.wrong : [...session.newWords, ...session.reviewWords]).filter((k) => dict.has(k));
+    if (!ks.length) return toast('沒有可以練習的字');
+    const dictation = new Set(lists.filter((l) => l.kind === 'cram' && l.testDate && l.testDate >= today).flatMap((l) => l.words.map((x) => wordKey(x.w))));
+    const mc = ks.filter((k) => dict.get(k).zh && dict.size >= 3).map((k) => ({ k, type: 'mc' }));
+    const spell = shuffle(ks).map((k) => ({ k, type: dictation.has(k) ? 'listen' : 'spell' }));
+    const queue = [...shuffle(mc), ...spell];
+    run = {
+      practice: true, mode, dict, newWords: ks, reviewWords: [], study: [...ks], queue,
+      total: queue.length, done: 0, misses: 0, wrong: new Set(), hinted: new Set(), feedback: null, st: null
+    };
+    prefetch(ks.map((k) => dict.get(k).w));
+    draw();
+  }
+
   const TITLES = {
     mc: '這個字是什麼意思？', spell: '拼出這個字', listen: '聽發音，拼出這個字', cloze: '填空：看句子和中文，拼出缺的字',
     clozeMc: '填空：選出句子裡缺的字', scramble: '把字母排回正確的順序', match: '配對：點一個英文，再點它的中文'
@@ -251,7 +285,7 @@ export function mountWords(el, { kid }) {
     if (r.study.length) {
       const x = r.dict.get(r.study[0]);
       const i = r.newWords.length - r.study.length;
-      el.innerHTML = `<div class="page-head"><h1>📖 新單字</h1>${quit}</div>${bar(i, r.newWords.length)}
+      el.innerHTML = `<div class="page-head"><h1>${r.practice ? '🔁 再看一次' : '📖 新單字'}</h1>${quit}</div>${bar(i, r.newWords.length)}
         <section class="card word-card">
           <button class="speak-big" data-say="${esc(x.w)}" aria-label="聽發音">🔊</button>
           <div class="word-big">${esc(x.w)}</div>
@@ -307,7 +341,7 @@ export function mountWords(el, { kid }) {
         </div>`;
         break;
     }
-    el.innerHTML = `<div class="page-head"><h1>📝 測驗</h1>${quit}</div>${bar(r.done, r.total)}
+    el.innerHTML = `<div class="page-head"><h1>${r.practice ? '🔁 額外練習' : '📝 測驗'}</h1>${quit}</div>${bar(r.done, r.total)}
       <section class="card word-card"><p class="q-title">${TITLES[q.type]}</p>${body}
         ${fb ? `<p class="fb ${fb.ok ? 'ok' : 'bad'}">${fb.ok ? '答對了！👍' : '再記一次，等一下會再考喔'}</p><button class="btn btn-primary btn-lg" data-act="qNext">繼續 ▶</button>` : ''}
       </section>`;
@@ -341,6 +375,7 @@ export function mountWords(el, { kid }) {
   }
 
   function markWrong(k) {
+    if (run.practice) { run.misses++; return; }   // 額外練習：不記錄
     if (run.wrong.has(k)) return;
     run.wrong.add(k);
     recordWrong(kid, today, k).catch((e) => showError(e, '記錄'));
@@ -378,6 +413,12 @@ export function mountWords(el, { kid }) {
     if (r.feedback.ok) r.done += q.ks ? q.ks.length : 1; else r.queue.push(q);
     r.feedback = null; r.st = null;
     if (r.queue.length) return draw();
+    if (r.practice) {
+      run = null;
+      recordPractice(kid, today, { mode: r.mode, words: r.newWords.length, misses: r.misses }).catch((e) => showError(e, '記錄練習'));
+      toast(r.misses ? `練習完成！這次答錯 ${r.misses} 次，再練一次會更熟 💪` : '練習完成，全部答對！🎉', 'ok');
+      return draw();
+    }
     // 全部完成
     const firstTryOk = new Set([...r.newWords, ...r.reviewWords].filter((k) => !r.wrong.has(k)));
     const sess = { newWords: r.newWords, reviewWords: r.reviewWords };
@@ -420,6 +461,7 @@ export function mountWords(el, { kid }) {
           .then((ok) => ok && resetSession(kid, today, session).then(() => toast('已重設，孩子可以重新開始', 'ok')))
           .catch((err) => showError(err, '重設'));
         break;
+      case 'practice': practice(b.dataset.mode); break;
       case 'start': b.disabled = true; start().catch((err) => { showError(err); b.disabled = false; }); break;
       case 'studyNext': run.study.shift(); draw(); break;
       case 'pick': {
