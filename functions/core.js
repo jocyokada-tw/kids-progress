@@ -1,7 +1,6 @@
 // 推播通知的共用邏輯（設定、勿擾時段、發送、每日提醒）。觸發條件在 index.js。
 import { initializeApp } from 'firebase-admin/app';
 import { getFirestore, FieldValue } from 'firebase-admin/firestore';
-import { getMessaging } from 'firebase-admin/messaging';
 import { logger } from 'firebase-functions';
 
 export const TZ = 'Asia/Taipei';
@@ -73,6 +72,7 @@ export async function deliver(fid, who, msg) {
   }
   const targets = await tokensFor(fid, who);
   if (!targets.length) return;
+  const { getMessaging } = await import('firebase-admin/messaging');   // 只有真的要發送時才載入
   const res = await getMessaging().sendEachForMulticast({
     tokens: targets.map((t) => t.token),
     data: { title: msg.title, body: msg.body || '', url: msg.url || '', tag: msg.tag || '' },

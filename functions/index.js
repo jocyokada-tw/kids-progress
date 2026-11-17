@@ -3,14 +3,19 @@
 import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { ttsHandler } from './tts.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { db, TZ, notify, kidName, clip, md, runPeriodic } from './core.js';
-import { onNoteWritten, onWeeklyWritten } from './journal.js';
+
+// 只有少數函式用到的模組（課後小記、雲端語音）在函式被呼叫時才載入，其他函式冷啟動時不用載入
+const journal = () => import('./journal.js');
+const ttsModule = () => import('./tts.js');
 
 // ⚠️ 必須和 Firestore 資料庫的位置相同（Firebase 主控台 → Firestore → 資料庫位置）
 const REGION = 'asia-east1';
-setGlobalOptions({ region: REGION, maxInstances: 2 });
+// cpu: 'gcf_gen1'：每個函式只配 1/6 顆 CPU（第 2 代預設是 1 顆）。這些函式大部分時間在等資料庫和推播回應，
+// 等待的時間也照 CPU 計費，用小的 CPU 比較省；代價是冷啟動慢幾秒（通知晚幾秒送到）。雲端語音另外設 1 顆，孩子不用等。
+// 小 CPU 一次只處理一個事件，所以 maxInstances 放寬到 5（沒用到不收費）。
+setGlobalOptions({ region: REGION, maxInstances: 5, cpu: 'gcf_gen1' });
 
 // ---------- 進度 ----------
 export const onTaskCreated = onDocumentCreated('families/{fid}/tasks/{id}', async (event) => {
@@ -137,19 +142,33 @@ export const onMessageCreated = onDocumentCreated('families/{fid}/threads/{kidId
 // ---------- 課後小記：依填寫內容自動入帳、媽媽留言通知 ----------
 export const onClassNoteWritten = onDocumentWritten('families/{fid}/classNotes/{id}', async (event) => {
   const { fid, id } = event.params;
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  // 入帳後伺服器寫回 levels／awarded 也會觸發一次：孩子的內容和媽媽留言都沒變，就直接結束
+  const KID = ['skipped', 'classes', 'mood', 'learned', 'interesting', 'question', 'memorable', 'momComment'];
+  if (!after || (before && KID.every((k) => JSON.stringify(before[k] ?? null) === JSON.stringify(after[k] ?? null)))) return;
+  const { onNoteWritten } = await journal();
   await onNoteWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 export const onWeeklyJournalWritten = onDocumentWritten('families/{fid}/weeklyJournals/{id}', async (event) => {
   const { fid, id } = event.params;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  // 草稿自動儲存也會觸發：還沒按完成、或已經入帳的，直接結束（不載入其他模組）
+  if (!after || after.status !== 'done' || after.awarded) return;
+  const { onWeeklyWritten } = await journal();
   await onWeeklyWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 // ---------- 雲端語音（每日單字的發音） ----------
-export const tts = onCall({ cors: true, memory: '256MiB', timeoutSeconds: 30 }, async (req) => {
+// 逾時 20 秒：合成本身另外限制 8 秒（見 tts.js），不會卡住到逾時
+export const tts = onCall({ cors: true, memory: '256MiB', cpu: 1, timeoutSeconds: 20 }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', '需要登入');
+  const { ttsHandler } = await ttsModule();
   return ttsHandler({ uid: req.auth.uid, fid: req.data && req.data.fid, text: req.data && req.data.text });
 });
 
-// ---------- 每 30 分鐘：每日提醒、勿擾時段結束後補發 ----------
-export const periodic = onSchedule({ schedule: '0,30 * * * *', timeZone: TZ }, async () => { await runPeriodic(); });
+// ---------- 排程：白天每 30 分鐘（07:00～22:30，一天 32 次） ----------
+// 依序：前一天沒完成的順延（07:00 那次處理）→ 勿擾時段排隊的通知補發 → 放學後提醒 → 指定時間前 30 分鐘提醒 → 每日提醒 → 課後小記提醒
+// 夜裡沒有要做的事：通知都在勿擾時段內，順延改在早上 7 點處理（結果相同）。提醒時間要設在 07:00～22:30 之間。
+export const periodic = onSchedule({ schedule: '0,30 7-22 * * *', timeZone: TZ }, async () => { await runPeriodic(); });

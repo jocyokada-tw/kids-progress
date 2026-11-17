@@ -121,10 +121,20 @@ export function mountWeekly(el, { kid, arg }) {
     body.querySelector('#wOther').innerHTML = otherWeeks();
   }
 
-  const save = (c) => {
-    clearTimeout(timers[c]);
-    timers[c] = setTimeout(() => saveWeeklyText(kid, week, c, texts[c]).catch((e) => showError(e, '儲存')), 800);
+  // 草稿：打字時不一直寫入資料庫（每次寫入都會觸發一次雲端函式）。
+  // 離開文字框、App 切到背景、離開這頁時才存；一直打字的話最多 15 秒存一次。
+  const saved = {};
+  const saveNow = (c) => {
+    clearTimeout(timers[c]); delete timers[c];
+    if (!(c in texts) || texts[c] === saved[c]) return Promise.resolve();
+    saved[c] = texts[c];
+    return saveWeeklyText(kid, week, c, texts[c]).catch((e) => { delete saved[c]; showError(e, '儲存'); });
   };
+  const save = (c) => { if (!timers[c]) timers[c] = setTimeout(() => saveNow(c), 15000); };
+  const flushAll = () => Promise.all(Object.keys(texts).map(saveNow));
+  body.addEventListener('change', (e) => { const c = e.target.dataset && e.target.dataset.cat; if (c && e.target.tagName === 'TEXTAREA') saveNow(c); });
+  const onHide = () => { if (document.visibilityState === 'hidden') flushAll(); };
+  document.addEventListener('visibilitychange', onHide);
 
   body.addEventListener('input', (e) => {
     const c = e.target.dataset && e.target.dataset.cat;
@@ -179,7 +189,7 @@ export function mountWeekly(el, { kid, arg }) {
         }
         case 'done':
           b.disabled = true;
-          for (const k of Object.keys(timers)) { clearTimeout(timers[k]); await saveWeeklyText(kid, week, k, texts[k]); }
+          await flushAll();
           await setWeeklyStatus(kid, week, 'done');
           toast(`整理好了！${cfg.weeklyPoints ? ` +${cfg.weeklyPoints} ⭐` : ''}`, 'ok');
           break;
@@ -194,7 +204,7 @@ export function mountWeekly(el, { kid, arg }) {
   });
   el.querySelector('[data-act=toJournal]').addEventListener('click', () => go(`/k/${kid}/journal`));
 
-  const flush = () => { for (const k of Object.keys(timers)) { clearTimeout(timers[k]); saveWeeklyText(kid, week, k, texts[k]).catch(() => {}); } };
+  const flush = () => { document.removeEventListener('visibilitychange', onHide); flushAll(); };
   const unsubs = [
     watchNotes(kid, (l) => { notes = l; draw(); }, (e) => showError(e, '讀取小記')),
     watchWeekly(kid, week, (w) => { weekly = w; draw(); }, (e) => showError(e, '讀取整理')),
