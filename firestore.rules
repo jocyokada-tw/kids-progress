@@ -163,10 +163,10 @@ service cloud.firestore {
       }
 
       // ---------- 課後小記：classNotes/{kidId}_{date} ----------
-      // 孩子寫自己的；點數相關欄位（level, awarded, onTheDay）只有伺服器能寫，媽媽留言只有媽媽能寫
-      function noteServerKeys() { return ['level', 'awarded', 'onTheDay']; }
+      // 孩子寫自己的（classes：每一類課各自的紀錄；最外層的心情等欄位是舊格式）；點數相關欄位（level, levels, awarded, onTheDay）只有伺服器能寫，媽媽留言只有媽媽能寫
+      function noteServerKeys() { return ['level', 'levels', 'awarded', 'onTheDay']; }
       function noteKidKeys() {
-        return ['kidId', 'date', 'updatedAt', 'skipped', 'memorable', 'topic', 'mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer',
+        return ['kidId', 'date', 'updatedAt', 'skipped', 'classes', 'memorable', 'topic', 'mood', 'moodDetail', 'followUpAnswer', 'boringReason', 'boringAnswer',
                 'learned', 'interesting', 'question', 'projectProgress', 'extraCategory', 'extraText'];
       }
       match /classNotes/{nid} {

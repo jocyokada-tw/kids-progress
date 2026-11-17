@@ -2,20 +2,24 @@ import { state, isMom, member } from '../state.js';
 import { esc, toast, showError, confirmDialog } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, labelMD, labelRelative, weekStart, addDays } from '../utils/date.js';
-import { journalSettings, usesJournal, classesOn, isClassDay, isLightDay, writableDates, canWrite, levelOf, pointsFor, feelingInText, categoryOf, MOOD_EMOJI } from '../utils/journal.js';
+import { journalSettings, usesJournal, classesOn, isClassDay, isLightDay, writableDates, canWrite, levelOf, pointsFor, feelingInText, categoryOf, MOOD_EMOJI, noteClasses, classLevels, notePoints, dayProgress, catsOn, CLASS_FIELDS, needsWriting } from '../utils/journal.js';
 import { watchNotes, saveNote, setMomComment, loadPrompts, noteId } from '../store/journal.js';
 import { weekSummary, sensitiveHints, isWeekend } from '../utils/weekly.js';
 
 export const LEVEL_LABEL = { basic: '基本', advanced: '進階', full: '完整' };
 const filled = (s) => typeof s === 'string' && s.trim().length > 0;
 
-/** 每一天的狀態（清單、首頁共用） */
-export function noteStatus(note) {
+/** 每一天的狀態（清單、首頁共用）。cats：那天的類別 */
+export function noteStatus(note, cats = []) {
   if (!note) return { text: '還沒寫', cls: '' };
   if (note.skipped) return { text: '今天休息 🌙', cls: '' };
-  const lv = levelOf(note);
-  if (!lv) return { text: '寫到一半', cls: 'tag-wait' };
-  return { text: `✓ ${LEVEL_LABEL[lv]}${note.awarded ? ` +${note.awarded}` : ''}`, cls: 'tag-ok' };
+  const { written, total } = dayProgress(note, cats);
+  const pts = note.awarded ? ` +${note.awarded}` : '';
+  if (!written) return { text: '寫到一半', cls: 'tag-wait' };
+  if (total > 1 && written < total) return { text: `寫了 ${written}/${total} 堂${pts}`, cls: 'tag-wait' };
+  if (total > 1) return { text: `✓ ${total} 堂都寫了${pts}`, cls: 'tag-ok' };
+  const lv = Object.values(classLevels(note, cats)).find(Boolean);
+  return { text: `✓ ${LEVEL_LABEL[lv]}${pts}`, cls: 'tag-ok' };
 }
 
 /** 課後小記：孩子填寫（含補寫、休息），媽媽查看與留言 */
@@ -26,7 +30,7 @@ export function mountJournal(el, { kid, arg }) {
   const dates = writableDates(cfg, kid, today);
   let prompts = null, notes = null;
   let date = arg && canWrite(cfg, kid, arg, today) ? arg : (isClassDay(cfg, kid, today) ? today : null);
-  let editing = false, draft = null, more = false, extraOpen = false, showOld = false;
+  let editing = false, draft = null, more = new Set(), showOld = false;
 
   if (!usesJournal(cfg, kid)) {
     el.innerHTML = `<div class="page-head"><h1>📝 課後小記</h1></div>
@@ -47,14 +51,15 @@ export function mountJournal(el, { kid, arg }) {
   const loadDraft = (d) => { try { return JSON.parse(localStorage.getItem(draftKey(d)) || 'null'); } catch { return null; } };
   const clearDraft = (d) => { try { localStorage.removeItem(draftKey(d)); } catch {} };
 
+  // draft = { 類別: { mood, learned, … } }
   function startEdit(d) {
     date = d;
-    const n = noteOf(d);
-    draft = { ...(n || {}), ...(loadDraft(d) || {}), skipped: false };
-    const cls = classesOn(cfg, kid, d);
-    if (!draft.memorable && cls.length === 1) draft.memorable = cls[0].category;
-    more = !isLightDay(cfg, d) || filled(draft.interesting) || filled(draft.question) || filled(draft.projectProgress);
-    extraOpen = filled(draft.extraText);
+    const cats = catsOn(cfg, kid, d);
+    const saved = noteClasses(noteOf(d), cats);
+    const local = loadDraft(d);
+    draft = {};
+    for (const c of cats) draft[c] = { ...(saved[c] && !saved[c].short ? saved[c] : saved[c] ? { learned: saved[c].learned } : {}), ...((local && local[c]) || {}) };
+    more = new Set(cats.filter((c) => !isLightDay(cfg, d) || filled(draft[c].interesting) || filled(draft[c].question) || filled(draft[c].projectProgress)));
     editing = true;
     lastSig = kwSig();
   }
@@ -62,7 +67,7 @@ export function mountJournal(el, { kid, arg }) {
   function pickDefault() {
     if (date) return;
     // 本週還沒寫的上課日（最近的優先），都寫了就看最近一天
-    const open = [...dates].reverse().find((d) => !noteOf(d));
+    const open = [...dates].reverse().find((d) => needsWriting(noteOf(d), catsOn(cfg, kid, d)));
     date = open || dates[dates.length - 1] || null;
   }
 
@@ -80,7 +85,7 @@ export function mountJournal(el, { kid, arg }) {
   function weekStrip() {
     if (!dates.length) return '';
     return `<div class="jweek">${dates.map((d) => {
-      const st = noteStatus(noteOf(d));
+      const st = noteStatus(noteOf(d), catsOn(cfg, kid, d));
       return `<button class="jday ${d === date && !mom ? 'active' : ''}" data-act="pickDate" data-date="${d}">
         <strong>${labelRelative(d) || labelMD(d)}</strong><span class="small">${classesOn(cfg, kid, d).map((c) => categoryOf(c.category).emoji).join('')}</span>
         <span class="tag ${st.cls}">${st.text}</span></button>`;
@@ -90,65 +95,84 @@ export function mountJournal(el, { kid, arg }) {
   // ---- 孩子填寫 ----
   const feeling = (id) => (prompts.feelings || []).find((f) => f.id === id);
   const bf = () => prompts.boringFlow || {};
-  const input = (name, label, ph = '', hint = '') => `
-    <label class="field"><span>${label}</span><textarea name="${name}" rows="2" maxlength="500" placeholder="${esc(ph)}">${esc(draft[name] || '')}</textarea>${hint ? `<span class="field-hint">${hint}</span>` : ''}</label>`;
-  const choice = (act, value, label, on) => `<button type="button" class="jchoice ${on ? 'on' : ''}" data-act="${act}" data-v="${esc(value)}" aria-pressed="${on}">${label}</button>`;
+  const input = (cat, name, label, ph = '', hint = '') => `
+    <label class="field"><span>${label}</span><textarea name="${name}" data-cat="${cat}" rows="2" maxlength="500" placeholder="${esc(ph)}">${esc(draft[cat][name] || '')}</textarea>${hint ? `<span class="field-hint">${hint}</span>` : ''}</label>`;
+  const choice = (act, cat, value, label, on) => `<button type="button" class="jchoice ${on ? 'on' : ''}" data-act="${act}" data-cat="${cat}" data-v="${esc(value)}" aria-pressed="${on}">${label}</button>`;
+  const late = () => date !== today;
+  const ptsOf = (l) => pointsFor(l, !late(), cfg);
 
-  function moodBlock() {
-    const f = feeling(draft.mood);
-    const showBoring = draft.mood === 'boring' || (draft.mood && feelingInText(`${draft.learned || ''} ${draft.interesting || ''}`) === 'boring');
+  function moodBlock(cat) {
+    const e = draft[cat];
+    const f = feeling(e.mood);
+    const showBoring = e.mood === 'boring' || (e.mood && feelingInText(`${e.learned || ''} ${e.interesting || ''}`) === 'boring');
     let html = '';
-    if (f && (f.refinements || []).length) html += `<div class="chips-row">${f.refinements.map((r) => choice('detail', r, esc(r), draft.moodDetail === r)).join('')}</div>`;
-    if (f && f.followUp) html += input('followUpAnswer', `💭 ${esc(f.followUp)}`, f.sentenceStarter || '', '可以不寫');
-    if (draft.mood === 'tired' || (draft.mood && draft.mood !== 'tired' && feelingInText(draft.learned) === 'tired')) {
-      html += `<p class="jnote">😪 ${esc((f && f.id === 'tired' ? f.message || (f.note || '').replace(/^.*只顯示：/, '') : '') || '累的時候也記得留下一句，很棒')}</p>`;
+    if (f && (f.refinements || []).length) html += `<div class="chips-row">${f.refinements.map((r) => choice('detail', cat, r, esc(r), e.moodDetail === r)).join('')}</div>`;
+    if (f && f.followUp) html += input(cat, 'followUpAnswer', `💭 ${esc(f.followUp)}`, f.sentenceStarter || '', '可以不寫');
+    if (e.mood === 'tired' || (e.mood && e.mood !== 'tired' && feelingInText(e.learned) === 'tired')) {
+      const t = feeling('tired');
+      html += `<p class="jnote">😪 ${esc((t ? t.message || (t.note || '').replace(/^.*只顯示：/, '') : '') || '累的時候也記得留下一句，很棒')}</p>`;
     }
     if (showBoring) {
-      const reason = (bf().reasons || []).find((r) => r.id === draft.boringReason);
+      const reason = (bf().reasons || []).find((r) => r.id === e.boringReason);
       html += `<div class="field"><span>${esc(bf().firstLevelQuestion || '是哪一種呢？')}</span>
-        <div class="chips-col">${(bf().reasons || []).map((r) => choice('reason', r.id, esc(r.label), draft.boringReason === r.id)).join('')}</div></div>`;
+        <div class="chips-col">${(bf().reasons || []).map((r) => choice('reason', cat, r.id, esc(r.label), e.boringReason === r.id)).join('')}</div></div>`;
       if (reason) {
         html += `<p class="jnote">🙏 ${esc(bf().responseMessage || '')}</p>`;
-        if (reason.secondLevel) html += input('boringAnswer', esc(reason.secondLevel), '', '可以不寫');
-        else if (reason.allowFreeText) html += input('boringAnswer', '想說說看嗎？', '', '可以不寫');
+        if (reason.secondLevel) html += input(cat, 'boringAnswer', esc(reason.secondLevel), '', '可以不寫');
+        else if (reason.allowFreeText) html += input(cat, 'boringAnswer', '想說說看嗎？', '', '可以不寫');
       }
     }
     return html;
   }
 
+  const classHint = (cat) => {
+    const lv = levelOf(draft[cat]);
+    return lv ? `✓ ${LEVEL_LABEL[lv]} +${ptsOf(lv)}` : !draft[cat].mood ? '選一個感覺' : '再寫一句學到的';
+  };
+
+  function classSection({ category: cat, count }) {
+    const e = draft[cat];
+    const c = categoryOf(cat);
+    return `<div class="jclass" data-cat="${cat}">
+      <div class="jclass-head"><h3>${c.emoji} ${esc(c.label)}${count > 1 ? ` <span class="muted small">×${count}</span>` : ''}</h3>
+        <span class="tag ${levelOf(e) ? 'tag-ok' : ''}" data-hint="${cat}">${classHint(cat)}</span></div>
+      <div class="field"><span>上完${esc(c.label)}的感覺？</span>
+        <div class="moods">${(prompts.feelings || []).map((f) => `
+          <button type="button" class="mood ${e.mood === f.id ? 'on' : ''}" data-act="mood" data-cat="${cat}" data-v="${f.id}" aria-pressed="${e.mood === f.id}">
+            <span class="mood-emoji">${MOOD_EMOJI[f.id] || '🙂'}</span><span>${esc(f.label)}</span></button>`).join('')}</div></div>
+      ${moodBlock(cat)}
+      ${input(cat, 'learned', `📚 ${esc(c.label)}學到了什麼？`, '一句話就好')}
+      ${more.has(cat) ? `
+        <div class="jmore">
+          <p class="muted small">多寫一項 +${ptsOf('advanced')}，兩項都寫 +${ptsOf('full')}（都可以不寫）</p>
+          ${input(cat, 'interesting', '✨ 我覺得有趣的是…')}
+          ${input(cat, 'question', '❓ 我想知道…')}
+          ${cat === 'project' ? input(cat, 'projectProgress', '🧭 專題：今天做到哪裡？', '', '可以不寫') : ''}
+        </div>` : `<button type="button" class="btn btn-ghost btn-block" data-act="more" data-cat="${cat}">✏️ 想多寫一點</button>`}
+    </div>`;
+  }
+
+  const submitText = () => {
+    const cats = catsOn(cfg, kid, date);
+    const done = cats.filter((c) => levelOf(draft[c]));
+    const total = done.reduce((t, c) => t + ptsOf(levelOf(draft[c])), 0);
+    if (!done.length) return cats.length > 1 ? '每一堂選一個感覺、寫一句學到的' : '選一個感覺，再寫一句學到的';
+    const left = cats.length - done.length;
+    return `共 +${total} 點${left ? `（還有 ${left} 堂可以之後再寫）` : ''}`;
+  };
+  const anyLevel = () => catsOn(cfg, kid, date).some((c) => levelOf(draft[c]));
+
   function form() {
     const cls = classesOn(cfg, kid, date);
-    const light = isLightDay(cfg, date);
-    const late = date !== today;
-    const lv = levelOf(draft);
-    const p = (l) => pointsFor(l, !late, cfg);
-    const hasProject = cls.some((c) => c.category === 'project');
-    const others = cls.filter((c) => c.category !== draft.memorable);
     return `
       <section class="card jform">
-        <div class="card-head"><h2>${labelMD(date)} ${late ? '<span class="tag tag-wait">補寫</span>' : ''}</h2>
+        <div class="card-head"><h2>${labelMD(date)} ${late() ? '<span class="tag tag-wait">補寫</span>' : ''}</h2>
           <button class="btn btn-sm btn-ghost" data-act="skip">今天休息</button></div>
-        <p class="muted small">今天的課：${cls.map((c) => `${categoryOf(c.category).emoji} ${esc(categoryOf(c.category).label)}${c.count > 1 ? ` ×${c.count}` : ''}`).join('、')}</p>
-        ${cls.length > 1 ? `<div class="field"><span>哪一堂最有印象？</span><div class="chips-row">${cls.map((c) => choice('memorable', c.category, `${categoryOf(c.category).emoji} ${esc(categoryOf(c.category).label)}`, draft.memorable === c.category)).join('')}</div></div>` : ''}
-        <div class="field"><span>上完課的感覺？</span>
-          <div class="moods">${(prompts.feelings || []).map((f) => `
-            <button type="button" class="mood ${draft.mood === f.id ? 'on' : ''}" data-act="mood" data-v="${f.id}" aria-pressed="${draft.mood === f.id}">
-              <span class="mood-emoji">${MOOD_EMOJI[f.id] || '🙂'}</span><span>${esc(f.label)}</span></button>`).join('')}</div></div>
-        ${moodBlock()}
-        ${input('learned', '📚 今天學到了什麼？', '一句話就好')}
-        ${more ? `
-          <div class="jmore">
-            <p class="muted small">多寫一項 +${p('advanced')}，兩項都寫 +${p('full')}（都可以不寫）</p>
-            ${input('interesting', '✨ 我覺得有趣的是…')}
-            ${input('question', '❓ 我想知道…')}
-            ${hasProject ? input('projectProgress', '🧭 專題：今天做到哪裡？', '', '可以不寫') : ''}
-          </div>` : `<button type="button" class="btn btn-ghost btn-block" data-act="more">✏️ 想多寫一點</button>`}
-        ${others.length && draft.memorable ? (extraOpen ? `
-          <div class="jmore"><div class="field"><span>也想記另一堂</span><div class="chips-row">${others.map((c) => choice('extraCat', c.category, `${categoryOf(c.category).emoji} ${esc(categoryOf(c.category).label)}`, draft.extraCategory === c.category)).join('')}</div></div>
-            ${input('extraText', '一句話就好', '')}</div>` : `<button type="button" class="btn btn-ghost btn-sm" data-act="extra">＋ 也想記另一堂</button>`) : ''}
+        <p class="muted small">今天的課：${cls.map((c) => `${categoryOf(c.category).emoji} ${esc(categoryOf(c.category).label)}${c.count > 1 ? ` ×${c.count}` : ''}`).join('、')}${cls.length > 1 ? '　每一堂各自記錄、各自算點數' : ''}</p>
+        ${cls.map(classSection).join('')}
         <div class="jsubmit">
-          <span class="muted small">${lv ? `${LEVEL_LABEL[lv]}版 +${p(lv)} 點` : !draft.mood ? '選一個感覺，再寫一句學到的' : '再寫一句學到的就完成了'}</span>
-          <button class="btn btn-primary" data-act="save" ${lv ? '' : 'disabled'}>完成 ✓</button>
+          <span class="muted small">${submitText()}</span>
+          <button class="btn btn-primary" data-act="save" ${anyLevel() ? '' : 'disabled'}>完成 ✓</button>
         </div>
       </section>`;
   }
@@ -163,27 +187,36 @@ export function mountJournal(el, { kid, arg }) {
         <p class="muted small">${cls.map((c) => `${categoryOf(c.category).emoji} ${esc(categoryOf(c.category).label)}`).join('、')}</p>
         <p class="empty">還沒寫</p></section>`;
     }
-    const lv = levelOf(n);
-    const f = feeling(n.mood);
-    const reason = (bf().reasons || []).find((r) => r.id === n.boringReason);
+    const cats = cls.map((c) => c.category);
+    const entries = noteClasses(n, cats);
+    const levels = classLevels(n, cats);
+    const st = noteStatus(n, cats);
     const line = (icon, label, v) => (filled(v) ? `<p><span class="muted small">${icon} ${label}</span><br>${esc(v)}</p>` : '');
+    const block = (cat) => {
+      const e = entries[cat];
+      const c = categoryOf(cat);
+      if (!e) return `<div class="jclass"><div class="jclass-head"><h3>${c.emoji} ${esc(c.label)}</h3><span class="tag">還沒寫</span></div></div>`;
+      const f = feeling(e.mood);
+      const reason = (bf().reasons || []).find((r) => r.id === e.boringReason);
+      return `<div class="jclass"><div class="jclass-head"><h3>${c.emoji} ${esc(c.label)}</h3>
+          ${levels[cat] ? `<span class="tag tag-ok">${LEVEL_LABEL[levels[cat]]}</span>` : e.short ? '<span class="tag">一句話</span>' : '<span class="tag tag-wait">寫到一半</span>'}</div>
+        ${f ? `<p class="jmood">${MOOD_EMOJI[e.mood] || ''} ${esc(f.label)}${e.moodDetail ? `・${esc(e.moodDetail)}` : ''}</p>` : ''}
+        ${f && f.followUp ? line('💭', esc(f.followUp), e.followUpAnswer) : ''}
+        ${reason ? `<p><span class="muted small">😐 ${esc(reason.label)}</span>${filled(e.boringAnswer) ? `<br>${esc(e.boringAnswer)}` : ''}</p>` : ''}
+        ${line('📚', '學到', e.learned)}
+        ${line('✨', '有趣的是', e.interesting)}
+        ${line('❓', '我想知道', e.question)}
+        ${line('🧭', '專題進度', e.projectProgress)}</div>`;
+    };
     return `
       <section class="card jcard">
-        <div class="card-head"><h2>${labelMD(d)} ${n.memorable ? `<span class="tag">${categoryOf(n.memorable).emoji} ${esc(categoryOf(n.memorable).label)}</span>` : ''}</h2>
-          ${n.skipped ? '<span class="tag">今天休息 🌙</span>' : lv ? `<span class="tag tag-ok">${LEVEL_LABEL[lv]}${n.awarded ? ` +${n.awarded} ⭐` : ''}</span>` : '<span class="tag tag-wait">寫到一半</span>'}</div>
-        ${n.skipped ? `<p class="muted">${mom ? '這天選擇休息' : '休息一下沒關係，下次再記 🙂'}</p>` : `
-          ${f ? `<p class="jmood">${MOOD_EMOJI[n.mood] || ''} ${esc(f.label)}${n.moodDetail ? `・${esc(n.moodDetail)}` : ''}</p>` : ''}
-          ${f && f.followUp ? line('💭', esc(f.followUp), n.followUpAnswer) : ''}
-          ${reason ? `<p><span class="muted small">😐 ${esc(reason.label)}</span>${filled(n.boringAnswer) ? `<br>${esc(n.boringAnswer)}` : ''}</p>` : ''}
-          ${line('📚', '學到', n.learned)}
-          ${line('✨', '有趣的是', n.interesting)}
-          ${line('❓', '我想知道', n.question)}
-          ${line('🧭', '專題進度', n.projectProgress)}
-          ${n.extraCategory && filled(n.extraText) ? line(categoryOf(n.extraCategory).emoji, esc(categoryOf(n.extraCategory).label), n.extraText) : ''}`}
+        <div class="card-head"><h2>${labelMD(d)}</h2>
+          <span class="tag ${st.cls}">${n.skipped ? st.text : `${st.text.replace(/ \+\d+$/, '')}${n.awarded ? ` +${n.awarded} ⭐` : ''}`}</span></div>
+        ${n.skipped ? `<p class="muted">${mom ? '這天選擇休息' : '休息一下沒關係，下次再記 🙂'}</p>` : cats.map(block).join('')}
         ${filled(n.momComment) ? `<div class="jcomment">💬 媽媽：${esc(n.momComment)}</div>` : ''}
         ${mom ? `<form class="jcomment-form" data-id="${esc(n.id)}"><textarea name="c" rows="2" maxlength="300" placeholder="回應孩子（選填）">${esc(n.momComment || '')}</textarea>
           <button class="btn btn-sm btn-primary" type="submit">${filled(n.momComment) ? '更新留言' : '留言'}</button></form>` : ''}
-        ${main && writable ? `<div class="btn-row"><button class="btn btn-ghost" data-act="edit" data-date="${d}">${n.skipped ? '改成要寫' : '✏️ 修改'}</button></div>` : ''}
+        ${main && writable ? `<div class="btn-row"><button class="btn btn-ghost" data-act="edit" data-date="${d}">${n.skipped ? '改成要寫' : dayProgress(n, cats).written < cats.length ? '✏️ 寫另一堂／修改' : '✏️ 修改'}</button></div>` : ''}
       </section>`;
   }
 
@@ -221,25 +254,25 @@ export function mountJournal(el, { kid, arg }) {
   }
 
   // ---- 事件 ----
+  const TEXT_FIELDS = ['followUpAnswer', 'boringAnswer', 'learned', 'interesting', 'question', 'projectProgress'];
   body.addEventListener('input', (e) => {
-    if (!editing || !e.target.name || !(e.target.name in { followUpAnswer: 1, boringAnswer: 1, learned: 1, interesting: 1, question: 1, projectProgress: 1, extraText: 1 })) return;
-    draft[e.target.name] = e.target.value;
+    const cat = e.target.dataset && e.target.dataset.cat;
+    if (!editing || !cat || !draft[cat] || !TEXT_FIELDS.includes(e.target.name)) return;
+    draft[cat][e.target.name] = e.target.value;
     saveDraft();
-    // 只更新送出列（不重畫整張表單，避免打字時失去焦點）
-    const lv = levelOf(draft);
+    // 只更新提示和送出列（不重畫整張表單，避免打字時失去焦點）
+    const tag = body.querySelector(`[data-hint="${cat}"]`);
+    if (tag) { tag.textContent = classHint(cat); tag.classList.toggle('tag-ok', !!levelOf(draft[cat])); }
     const sub = body.querySelector('.jsubmit');
-    if (sub) {
-      const late = date !== today;
-      sub.querySelector('span').textContent = lv ? `${LEVEL_LABEL[lv]}版 +${pointsFor(lv, !late, cfg)} 點` : !draft.mood ? '選一個感覺，再寫一句學到的' : '再寫一句學到的就完成了';
-      sub.querySelector('button').disabled = !lv;
-    }
+    if (sub) { sub.querySelector('span').textContent = submitText(); sub.querySelector('button').disabled = !anyLevel(); }
   });
   // 打完字離開欄位時，若出現「無聊」「累」等字，補上對應的追問
   // 只有追問真的要改變時才重畫（重畫會讓剛按下的按鈕失效，例如打完字直接按「完成」）
-  const kwSig = () => `${feelingInText(`${draft.learned || ''} ${draft.interesting || ''}`) === 'boring'}|${feelingInText(draft.learned) === 'tired'}`;
+  const kwSig = () => Object.entries(draft || {}).map(([c, e]) => `${c}:${feelingInText(`${e.learned || ''} ${e.interesting || ''}`) === 'boring'}|${feelingInText(e.learned) === 'tired'}`).join(',');
   let lastSig = '';
   body.addEventListener('change', (e) => {
-    if (!editing || !['learned', 'interesting'].includes(e.target.name) || !draft.mood) return;
+    const cat = e.target.dataset && e.target.dataset.cat;
+    if (!editing || !cat || !['learned', 'interesting'].includes(e.target.name) || !(draft[cat] || {}).mood) return;
     const sig = kwSig();
     if (sig !== lastSig) { lastSig = sig; redraw(); }
   });
@@ -257,21 +290,20 @@ export function mountJournal(el, { kid, arg }) {
   body.addEventListener('click', async (e) => {
     const b = e.target.closest('[data-act]');
     if (!b) return;
-    const v = b.dataset.v;
+    const v = b.dataset.v, c = b.dataset.cat;
     try {
       switch (b.dataset.act) {
         case 'pickDate':
           if (!mom) go(`/k/${kid}/journal/${b.dataset.date}`);
           return;
-        case 'mood':
-          if (draft.mood !== v) { draft.moodDetail = ''; draft.followUpAnswer = ''; if (v !== 'boring') { draft.boringReason = ''; draft.boringAnswer = ''; } }
-          draft.mood = v; break;
-        case 'detail': draft.moodDetail = draft.moodDetail === v ? '' : v; break;
-        case 'reason': if (draft.boringReason !== v) draft.boringAnswer = ''; draft.boringReason = v; break;
-        case 'memorable': draft.memorable = v; if (draft.extraCategory === v) draft.extraCategory = ''; break;
-        case 'extraCat': draft.extraCategory = v; break;
-        case 'more': more = true; break;
-        case 'extra': extraOpen = true; break;
+        case 'mood': {
+          const d = draft[c];
+          if (d.mood !== v) { d.moodDetail = ''; d.followUpAnswer = ''; if (v !== 'boring') { d.boringReason = ''; d.boringAnswer = ''; } }
+          d.mood = v; break;
+        }
+        case 'detail': draft[c].moodDetail = draft[c].moodDetail === v ? '' : v; break;
+        case 'reason': if (draft[c].boringReason !== v) draft[c].boringAnswer = ''; draft[c].boringReason = v; break;
+        case 'more': more.add(c); break;
         case 'toggleOld': showOld = !showOld; break;
         case 'edit': startEdit(b.dataset.date); break;
         case 'skip': {
@@ -282,15 +314,21 @@ export function mountJournal(el, { kid, arg }) {
           break;
         }
         case 'save': {
-          const lv = levelOf(draft);
-          if (!lv) return;
+          if (!anyLevel()) return;
           b.disabled = true;
-          const data = { ...draft, skipped: false };
-          if (!(data.extraCategory && filled(data.extraText))) { data.extraCategory = ''; data.extraText = ''; }
-          await saveNote(kid, date, data);
+          const cats = catsOn(cfg, kid, date);
+          const classes = {};
+          for (const k of cats) {
+            const e = {};
+            for (const f of CLASS_FIELDS) e[f] = typeof draft[k][f] === 'string' ? draft[k][f].trim().slice(0, 500) : '';
+            classes[k] = e;
+          }
+          await saveNote(kid, date, { skipped: false, classes });
           clearDraft(date);
           editing = false;
-          toast(`完成了！${LEVEL_LABEL[lv]}版 +${pointsFor(lv, date === today, cfg)} ⭐`, 'ok');
+          const pts = notePoints({ classes }, cats, date === today, cfg);
+          const left = cats.filter((k) => !levelOf(classes[k])).length;
+          toast(`完成了！+${pts} ⭐${left ? `　還有 ${left} 堂可以之後再寫` : ''}`, 'ok');
           break;
         }
         default: return;

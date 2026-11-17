@@ -418,3 +418,11 @@ test('記事錄整理：孩子寫自己的；點數只有伺服器能寫；自�
   await assertFails(setDoc(doc(a, F, 'meta/journalPrompts'), { feelings: [] }));
   await assertSucceeds(getDoc(doc(a, F, 'meta/journalPrompts')));
 });
+
+test('課後小記（每堂各自紀錄）：孩子可以寫 classes，不能寫 levels', async () => {
+  const ref = doc(db('a'), F, 'classNotes/kidA_2026-11-12');
+  await assertSucceeds(setDoc(ref, { kidId: 'kidA', date: '2026-11-12', classes: { humanities: { mood: 'fun', learned: 'a' }, project: { mood: '', learned: '' } }, updatedAt: serverTimestamp() }));
+  await assertSucceeds(setDoc(ref, { classes: { project: { mood: 'okay', learned: 'b' } }, updatedAt: serverTimestamp() }, { merge: true }));
+  await assertFails(updateDoc(ref, { levels: { humanities: 'full' } }));
+  await assertFails(updateDoc(doc(db('mom'), F, 'classNotes/kidA_2026-11-12'), { levels: {} }));
+});

@@ -1,6 +1,6 @@
 // 週末「記事錄整理」、媽媽的每週摘要、匯出的純邏輯（不碰資料庫，方便測試）
 import { addDays, weekStart, weekday } from './date.js';
-import { CATEGORIES, classesOn, levelOf, categoryOf } from './journal.js';
+import { CATEGORIES, classesOn, levelOf, categoryOf, noteClasses, catsOn } from './journal.js';
 
 // journalPrompts.json 沒有這段時用的預設文字
 export const WEEKLY_PAGE_DEFAULTS = {
@@ -29,16 +29,18 @@ export function weekClasses(cfg, kidId, week) {
 
 const inWeek = (date, week) => date >= week && date <= addDays(week, 6);
 
-/** 這週和某個類別有關的小記內容（最有印象的那堂、或「也想記另一堂」） */
+/** 這週某一類課的小記：[{ date, ...那堂的紀錄 }]（日期排序） */
 export function notesFor(notes, week, category) {
-  return notes.filter((n) => inWeek(n.date, week) && !n.skipped && (n.memorable === category || n.extraCategory === category))
+  return notes.filter((n) => inWeek(n.date, week) && !n.skipped)
+    .map((n) => ({ n, e: noteClasses(n)[category] })).filter((x) => x.e)
+    .map(({ n, e }) => ({ ...e, date: n.date }))
     .sort((a, b) => a.date.localeCompare(b.date));
 }
 
 /** 這週這個類別有沒有「覺得難／不感興趣」之類的回應 → 開頭句加入低壓力的選項 */
 export function needsLowPressure(notes, week, category, prompts) {
   const ids = (prompts.starterRules && prompts.starterRules.lowPressureTriggerReasonIds) || [];
-  return notes.some((n) => inWeek(n.date, week) && n.memorable === category && ids.includes(n.boringReason));
+  return notesFor(notes, week, category).some((e) => ids.includes(e.boringReason));
 }
 
 function shuffle(list, rng) {
@@ -90,10 +92,15 @@ export function weekSummary(cfg, kidId, notes, week, today) {
     const n = by.get(d);
     if (!n) continue;
     if (n.skipped) { skipped++; } else {
-      const lv = levelOf(n);
-      if (lv) { written++; levels[lv] = (levels[lv] || 0) + 1; }
-      if (n.mood) moods[n.mood] = (moods[n.mood] || 0) + 1;
-      if (n.question && n.question.trim()) questions.push({ date: d, category: n.memorable || '', text: n.question.trim() });
+      const entries = noteClasses(n, catsOn(cfg, kidId, d));
+      let any = false;
+      for (const [cat, e] of Object.entries(entries)) {
+        const lv = levelOf(e);
+        if (lv) { any = true; levels[lv] = (levels[lv] || 0) + 1; }
+        if (e.mood) moods[e.mood] = (moods[e.mood] || 0) + 1;
+        if (e.question && e.question.trim()) questions.push({ date: d, category: cat, text: e.question.trim() });
+      }
+      if (any) written++;
     }
     points += Number(n.awarded) || 0;
   }
@@ -113,7 +120,7 @@ export function sensitiveHints(notes, today, prompts, weeks = 2) {
     let ok = true;
     for (let i = 0; i < weeks && ok; i++) {
       const w = addDays(w0, -7 * i);
-      ok = notes.some((n) => inWeek(n.date, w) && n.memorable === c.id && !n.skipped && ids.includes(n.boringReason));
+      ok = notesFor(notes, w, c.id).some((e) => ids.includes(e.boringReason));
     }
     if (ok) out.push({ category: c.id, weeks });
   }
@@ -140,11 +147,18 @@ export function notesCsv(notes, prompts, cfg, kidId, from, to) {
   const feel = (id) => ((prompts.feelings || []).find((f) => f.id === id) || {}).label || id || '';
   const reason = (id) => (((prompts.boringFlow || {}).reasons || []).find((r) => r.id === id) || {}).label || id || '';
   const cat = (id) => (id ? categoryOf(id).label : '');
-  const rows = [['日期', '星期', '當天的課', '最有印象', '心情', '細分', '追問的回答', '無聊的原因', '無聊追問的回答', '學到', '有趣的是', '我想知道', '專題進度', '另一堂', '另一堂內容', '完成程度', '點數', '補寫', '休息', '媽媽留言']];
+  const rows = [['日期', '星期', '課程', '心情', '細分', '追問的回答', '無聊的原因', '無聊追問的回答', '學到', '有趣的是', '我想知道', '專題進度', '完成程度', '當天點數', '補寫', '休息', '媽媽留言']];
   for (const n of [...notes].filter((x) => x.date >= from && x.date <= to).sort((a, b) => a.date.localeCompare(b.date))) {
-    rows.push([n.date, WD[weekday(n.date)], classesOn(cfg, kidId, n.date).map((c) => cat(c.category) + (c.count > 1 ? `×${c.count}` : '')).join('、'),
-      cat(n.memorable), feel(n.mood), n.moodDetail, n.followUpAnswer, reason(n.boringReason), n.boringAnswer, n.learned, n.interesting, n.question,
-      n.projectProgress, cat(n.extraCategory), n.extraText, LV[levelOf(n)] || '', n.awarded || 0, n.onTheDay === false ? '是' : '', n.skipped ? '是' : '', n.momComment]);
+    const cats = catsOn(cfg, kidId, n.date);
+    const tail = [n.awarded || 0, n.onTheDay === false ? '是' : '', n.skipped ? '是' : '', n.momComment];
+    if (n.skipped) { rows.push([n.date, WD[weekday(n.date)], cats.map(cat).join('、'), '', '', '', '', '', '', '', '', '', '', ...tail]); continue; }
+    const entries = noteClasses(n, cats);
+    const order = [...cats, ...Object.keys(entries).filter((k) => !cats.includes(k))].filter((k) => entries[k]);
+    for (const k of order) {
+      const e = entries[k];
+      rows.push([n.date, WD[weekday(n.date)], cat(k), feel(e.mood), e.moodDetail, e.followUpAnswer, reason(e.boringReason), e.boringAnswer,
+        e.learned, e.interesting, e.question, e.projectProgress, LV[levelOf(e)] || '', ...tail]);
+    }
   }
   return toCsv(rows);
 }

@@ -441,3 +441,21 @@ test('記事錄整理：週末送出而且有內容才入帳，只入帳一次',
   assert.equal(w.awarded, undefined);
   assert.equal((await ledgerW()).length, 1);
 });
+
+test('課後小記：兩類課各自算點數再加總；之後補寫另一堂、升級都補差額', async () => {
+  const id = 'kidA_2026-11-12';   // 週四：人文＋專題
+  const thu = at('2026-11-12');
+  let n = await writeNote(id, { kidId: 'kidA', date: '2026-11-12', classes: { humanities: { mood: 'fun', learned: '朝代', interesting: 'a', question: 'b' }, project: { mood: '', learned: '' } } }, thu);
+  assert.deepEqual(n.levels, { humanities: 'full', project: null });
+  assert.equal(n.awarded, 3);
+  n = await writeNote(id, { classes: { project: { mood: 'okay', learned: '題目' } } }, at('2026-11-14'));   // 週六補寫專題
+  assert.deepEqual(n.levels, { humanities: 'full', project: 'basic' });
+  assert.equal(n.awarded, 4);
+  n = await writeNote(id, { classes: { project: { mood: 'okay', learned: '題目', question: '怎麼訪問' }, math_science: { mood: 'fun', learned: '不是這天的課' } } }, thu);
+  assert.equal(n.awarded, 5);                                   // 課表上沒有的類別不算
+  const l = (await ledgerOf()).filter((x) => x.refId === id).map((x) => [x.amount, x.title]).sort();
+  assert.deepEqual(l, [[1, '📝 課後小記 11/12（人文 完整・專題研究 基本・升級）'], [1, '📝 課後小記 11/12（人文 完整・專題研究 進階・升級）'], [3, '📝 課後小記 11/12（人文 完整）']]);
+  const s = await loadSettings('home');
+  await db.doc(`${F}/classNotes/kidA_2026-11-17`).set({ kidId: 'kidA', date: '2026-11-17', classes: { math_science: { mood: 'fun', learned: 'x' } } });
+  assert.deepEqual(await journalReminder('home', s, at('2026-11-17', '18:30')), []);   // 新格式寫了一堂就不提醒
+});

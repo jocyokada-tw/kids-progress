@@ -1,9 +1,10 @@
 // 課後小記：依填寫內容自動入帳（不用媽媽核可）、媽媽留言通知、上課日的溫和提醒。
 import { FieldValue } from 'firebase-admin/firestore';
 import { db, notify, taipeiNow, inQuiet, deliver, md } from './core.js';
-import { journalSettings, levelOf, pointsFor, classDay, weekStartOf, hasClasses, weekendWindow } from './journal-logic.js';
+import { journalSettings, pointsFor, classDay, weekStartOf, hasClasses, weekendWindow, catsOn, classLevels } from './journal-logic.js';
 
 const LEVEL_LABEL = { basic: '基本', advanced: '進階', full: '完整' };
+const CAT_LABEL = { humanities: '人文', math_science: '數理', project: '專題研究' };
 
 /**
  * 小記寫入後計算點數。只加不扣：升級時補差額，改成較少或休息都不扣。
@@ -20,24 +21,29 @@ export async function awardNote(fid, noteId, now = taipeiNow()) {
     if (!s.exists) return 0;
     const n = s.data();
     if (noteId !== `${n.kidId}_${n.date}`) return 0;
-    const level = levelOf(n);
+    // 每一類課各自計算層級與點數，再加總（只算那天課表上有的類別）
+    const cats = catsOn(cfg, n.kidId, n.date);
+    const levels = classLevels(n, cats);
     const awarded = Number(n.awarded) || 0;
     const patch = {};
-    if ((n.level || null) !== level) patch.level = level;
+    if (JSON.stringify(n.levels || {}) !== JSON.stringify(levels)) patch.levels = levels;
+    const best = ['full', 'advanced', 'basic'].find((l) => Object.values(levels).includes(l)) || null;
+    if ((n.level || null) !== best) patch.level = best;
     // 只在同一週、今天以前的上課日給點數（以伺服器的台灣日期為準）
     const valid = classDay(cfg, n.kidId, n.date) && n.date <= now.date && n.date >= weekStartOf(now.date);
     let add = 0;
-    if (valid && level) {
+    if (valid && best) {
       const onTheDay = n.onTheDay != null ? n.onTheDay : n.date === now.date;
       if (n.onTheDay == null) patch.onTheDay = onTheDay;
-      const target = pointsFor(level, onTheDay, cfg);
+      const target = Object.values(levels).reduce((t, lv) => t + pointsFor(lv, onTheDay, cfg), 0);
       if (target > awarded) {
         add = target - awarded;
         const lref = fam.collection('ledger').doc(`classNote_${noteId}_${target}`);
         if (!(await tx.get(lref)).exists) {
+          const parts = cats.filter((c) => levels[c]).map((c) => `${CAT_LABEL[c] || c} ${LEVEL_LABEL[levels[c]]}`).join('・');
           tx.set(lref, {
             kidId: n.kidId, amount: add, type: 'classNote', date: n.date, refId: noteId, createdBy: 'server', createdAt: FieldValue.serverTimestamp(),
-            title: `📝 課後小記 ${md(n.date)}（${LEVEL_LABEL[level]}${awarded ? '・升級' : ''}${onTheDay ? '' : '・補寫'}）`
+            title: `📝 課後小記 ${md(n.date)}（${parts}${awarded ? '・升級' : ''}${onTheDay ? '' : '・補寫'}）`
           });
         }
         patch.awarded = target;
@@ -51,8 +57,8 @@ export async function awardNote(fid, noteId, now = taipeiNow()) {
 /** 寫入觸發：入帳、媽媽留言通知孩子 */
 export async function onNoteWritten(fid, noteId, before, after, now = taipeiNow()) {
   if (!after) return;
-  const kidFields = ['skipped', 'mood', 'learned', 'interesting', 'question'];
-  const changed = !before || kidFields.some((k) => before[k] !== after[k]) || (before.level || null) !== (levelOf(after) || null);
+  const sig = (x) => JSON.stringify(['skipped', 'classes', 'mood', 'learned', 'interesting', 'question', 'memorable'].map((k) => (x ? x[k] ?? null : null)));
+  const changed = !before || sig(before) !== sig(after);
   if (changed) {
     const add = await awardNote(fid, noteId, now);
     if (add > 0) {
@@ -82,7 +88,7 @@ export async function journalReminder(fid, s, now) {
   for (const kidId of cfg.kids || []) {
     if (!classDay(cfg, kidId, now.date)) continue;
     const n = await fam.collection('classNotes').doc(`${kidId}_${now.date}`).get();
-    if (n.exists && (n.data().skipped || levelOf(n.data()))) continue;
+    if (n.exists && (n.data().skipped || Object.values(classLevels(n.data(), catsOn(cfg, kidId, now.date))).some(Boolean))) continue;
     await deliver(fid, kidId, {
       title: '📝 今天的課後小記', body: '上完課了嗎？選個心情、寫一句學到的就好 🙂', url: `#/k/${kidId}/journal`, tag: `journal-remind-${kidId}`
     });
