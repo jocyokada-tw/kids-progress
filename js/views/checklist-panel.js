@@ -85,7 +85,7 @@ export function mountChecklistPanel(el, { kid, date }) {
     }
     if (!s) return '<span class="tag">單字</span>';
     const bonus = ({ ...WORD_DEFAULTS, ...(state.settings.words || {}) }).perfectBonus;
-    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}`;
+    return `<span class="tag">單字</span>${s.perfect ? `<span class="tag tag-ok">🎯 一次全對${bonus ? ` +${bonus}` : ''}</span>` : `<span class="tag">答錯 ${(s.wrong || []).length} 個字</span>`}${s.practice ? `<span class="tag">🔁 額外練習 ${s.practice} 次</span>` : ''}`;
   }
 
   function row(it) {

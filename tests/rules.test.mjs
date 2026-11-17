@@ -426,3 +426,18 @@ test('課後小記（每堂各自紀錄）：孩子可以寫 classes，不能寫
   await assertFails(updateDoc(ref, { levels: { humanities: 'full' } }));
   await assertFails(updateDoc(doc(db('mom'), F, 'classNotes/kidA_2026-11-12'), { levels: {} }));
 });
+
+test('每日單字額外練習：完成後孩子只能把次數加 1、多記一筆，不能改結果', async () => {
+  await env.withSecurityRulesDisabled(async (c) => {
+    await setDoc(doc(c.firestore(), F, 'wordSessions/kidA_2026-11-17'), { kidId: 'kidA', date: '2026-11-17', newWords: ['a'], reviewWords: [], wrong: ['a'], finished: true, perfect: false });
+  });
+  const { increment, arrayUnion } = await import('firebase/firestore');
+  const ref = doc(db('a'), F, 'wordSessions/kidA_2026-11-17');
+  await assertSucceeds(updateDoc(ref, { practice: increment(1), practiceLog: arrayUnion({ mode: 'wrong', words: 1, misses: 0, at: 1 }) }));
+  await assertSucceeds(updateDoc(ref, { practice: increment(1), practiceLog: arrayUnion({ mode: 'all', words: 1, misses: 2, at: 2 }) }));
+  await assertFails(updateDoc(ref, { practice: 10, practiceLog: arrayUnion({ mode: 'all', words: 1, misses: 0, at: 3 }) }));   // 不能一次加很多
+  await assertFails(updateDoc(ref, { practice: increment(1) }));                                                              // 一定要有紀錄
+  await assertFails(updateDoc(ref, { practice: increment(1), practiceLog: arrayUnion({ at: 4 }), perfect: true }));           // 不能順便改結果
+  await assertFails(updateDoc(ref, { wrong: [] }));
+  await assertFails(updateDoc(doc(db('a'), F, 'wordSessions/kidB_2026-11-17'), { practice: increment(1) }));
+});

@@ -264,7 +264,12 @@ service cloud.firestore {
               && request.resource.data.newWords == resource.data.newWords
               && request.resource.data.reviewWords == resource.data.reviewWords
               && request.resource.data.wrong.hasAll(resource.data.wrong)
-              && (request.resource.data.perfect == false || request.resource.data.wrong.size() == 0));
+              && (request.resource.data.perfect == false || request.resource.data.wrong.size() == 0))
+          // 完成後的額外練習：只能把次數加 1、多記一筆練習紀錄（不能改結果）
+          || (canKid(resource.data.kidId) && resource.data.finished == true
+              && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['practice', 'practiceLog'])
+              && request.resource.data.practice == resource.data.get('practice', 0) + 1
+              && request.resource.data.practiceLog.size() == resource.data.get('practiceLog', []).size() + 1);
         allow delete: if isMom();
       }
 

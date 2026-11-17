@@ -6,7 +6,7 @@ import { speak, canPlaySound, stopSpeaking, englishVoices, currentVoice, setVoic
 import { unlockAudio, prefetch } from '../utils/cloud-voice.js';
 import {
   WORD_DEFAULTS, watchWordLists, loadKidLists, watchProgress, saveProgress, watchSession, watchSessions,
-  startSession, recordWrong, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
+  startSession, recordWrong, recordPractice, finishSession, planToday, nextProgress, wordKey, sameSpelling, resetSession, INTERVALS, buildDict,
   makeCloze, clozeAccepts, buildReviewQuestions, scrambleLetters, letterHint
 } from '../store/words.js';
 import { markWordsDone } from '../store/checklist.js';
@@ -26,7 +26,6 @@ export function mountWords(el, { kid }) {
   let sessions = [];
   let run = null;            // 進行中的練習（只在這個畫面裡）
   let loadSeq = 0;
-  let practiced = 0;         // 今天額外練習了幾次（只記在這個畫面）
 
   const ready = () => lists && progress && session !== undefined;
   const dictOf = () => buildDict(lists || []);
@@ -73,7 +72,7 @@ export function mountWords(el, { kid }) {
           <div class="btn-row" style="justify-content:flex-start">
             ${session.wrong.length ? `<button class="btn btn-primary" data-act="practice" data-mode="wrong">再練答錯的字（${session.wrong.length}）</button>` : ''}
             <button class="btn ${session.wrong.length ? 'btn-ghost' : 'btn-primary'}" data-act="practice" data-mode="all">今天的字全部再練一次（${words.length}）</button>
-          </div>${practiced ? `<p class="muted small">今天已經額外練習 ${practiced} 次 💪</p>` : ''}</section>
+          </div>${session.practice ? `<p class="muted small">今天已經額外練習 ${session.practice} 次 💪</p>` : ''}</section>
         <section class="card"><h2>今天的單字</h2>${wordRows(words, session.wrong)}</section>`;
     }
     const total = p.newWords.length + p.reviewWords.length;
@@ -151,6 +150,16 @@ export function mountWords(el, { kid }) {
     return n;
   }
 
+  /** 媽媽看的額外練習說明：「・額外練習 2 次（答錯的字 1 次、全部 1 次；最後一次全對）」 */
+  function practiceText(s) {
+    if (!s || !s.practice) return '';
+    const log = s.practiceLog || [];
+    const w = log.filter((x) => x.mode === 'wrong').length, a = log.filter((x) => x.mode === 'all').length;
+    const last = log.length ? log.reduce((m, x) => (x.at > m.at ? x : m)) : null;
+    const parts = [w ? `答錯的字 ${w} 次` : '', a ? `全部 ${a} 次` : ''].filter(Boolean).join('、');
+    return `<br>🔁 額外練習 <strong>${s.practice}</strong> 次${parts ? `（${parts}）` : ''}${last ? `<span class="muted small">・最後一次${last.misses ? `答錯 ${last.misses} 次` : '全對 👍'}</span>` : ''}`;
+  }
+
   function momHtml(learned) {
     const dict = dictOf();
     const due = Object.entries(progress).filter(([k, p]) => dict.has(k) && p.d && p.d <= today).length;
@@ -163,7 +172,8 @@ export function mountWords(el, { kid }) {
           <div class="stat"><span class="stat-num">${due}</span><span class="muted small">今天到期複習</span></div>
           <div class="stat"><span class="stat-num">${streakDays()}</span><span class="muted small">連續天數</span></div>
         </div>
-        <p><strong>今天：</strong>${todayState}${session ? ' <button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button>' : ''}</p>
+        <p><strong>今天：</strong>${todayState}${practiceText(session)}</p>
+        ${session ? '<div class="btn-row" style="justify-content:flex-start"><button class="btn btn-sm btn-ghost" data-act="reset">重設今天的練習</button></div>' : ''}
         ${session && session.wrong.length ? wordRows(session.wrong.map((k) => dict.get(k)).filter(Boolean)) : ''}
       </section>
       ${listsProgressHtml()}
@@ -172,7 +182,7 @@ export function mountWords(el, { kid }) {
       </section>
       <section class="card"><h2>最近的練習</h2>
         ${sessions.length ? `<ul class="rows">${sessions.slice(0, 10).map((s) => `<li class="row"><span class="grow">${labelMD(s.date)}<br><span class="muted small">新字 ${s.newWords.length}・複習 ${s.reviewWords.length}</span></span>
-          <span class="tag ${!s.finished ? 'tag-wait' : s.perfect ? 'tag-ok' : ''}">${!s.finished ? '未完成' : s.perfect ? '一次全對' : `錯 ${s.wrong.length} 個`}</span></li>`).join('')}</ul>` : '<p class="empty">還沒有紀錄</p>'}
+          ${s.practice ? `<span class="tag">🔁 額外練習 ${s.practice} 次</span>` : ''}<span class="tag ${!s.finished ? 'tag-wait' : s.perfect ? 'tag-ok' : ''}">${!s.finished ? '未完成' : s.perfect ? '一次全對' : `錯 ${s.wrong.length} 個`}</span></li>`).join('')}</ul>` : '<p class="empty">還沒有紀錄</p>'}
       </section>`;
   }
 
@@ -405,7 +415,7 @@ export function mountWords(el, { kid }) {
     if (r.queue.length) return draw();
     if (r.practice) {
       run = null;
-      practiced++;
+      recordPractice(kid, today, { mode: r.mode, words: r.newWords.length, misses: r.misses }).catch((e) => showError(e, '記錄練習'));
       toast(r.misses ? `練習完成！這次答錯 ${r.misses} 次，再練一次會更熟 💪` : '練習完成，全部答對！🎉', 'ok');
       return draw();
     }

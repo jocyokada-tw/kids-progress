@@ -26,7 +26,7 @@
 | `wordLists/{id}` | 單字字庫 | `name`, `kind: cram\|general`（補習班／一般字庫）, `kids[]`, `testDate`（補習班考試日）, `count`, `active` |
 | `wordLists/{id}/chunks/{n}` | 字庫內容（每 200 字一份） | `words: [{w, pos, zh, ex}]`（`pos` 詞性可省略，只顯示不考） |
 | `wordProgress/{kidId}` | 單字學習進度 | `w: { 單字: { b: 熟練度 0–6, d: 下次複習日, n: 練習次數, x: 答錯次數, t: 學會日 } }` |
-| `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect` |
+| `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect`, `practice`（完成後額外練習的次數）, `practiceLog: [{mode: wrong\|all, words, misses, at}]` |
 | `tts/{雜湊}` | 雲端語音快取（伺服器寫入，裝置只能讀單筆） | `text`, `audio`（base64 MP3）, `createdAt` |
 | `meta/ttsUsage` | 雲端語音每日用量（伺服器專用） | `date`, `chars` |
 | `classNotes/{kidId}_{日期}` | 課後小記（資優班上課日） | 孩子寫：`skipped`（今天休息）, `classes: { humanities\|math_science\|project: { mood, moodDetail, followUpAnswer, boringReason, boringAnswer, learned, interesting, question, projectProgress } }`（每一類課各自紀錄；舊資料的 `memorable`＋最外層欄位＋`extraCategory`／`extraText` 讀取時會轉成這個格式）；伺服器寫：`levels: { 類別: basic\|advanced\|full\|null }`, `level`（最高的一堂）, `awarded`（已入帳點數，每一類課分開算再加總）, `onTheDay`；媽媽寫：`momComment`, `momCommentAt` |
@@ -106,7 +106,7 @@
 | 課後小記 | 孩子只能寫自己的小記（文件 ID 必須是 `{kidId}_{日期}`），不能寫 `level`／`awarded`／`onTheDay`（點數由伺服器依填寫內容計算入帳：只加不扣、只限同一週今天以前的上課日），不能寫媽媽留言；媽媽也不能改點數欄位。記事錄整理同樣只能寫自己的，`awarded` 只有伺服器能寫 |
 | 媽媽裝置 | 全部可讀寫，**但流水帳只能新增，任何人都不能修改或刪除** |
 
-`tests/rules.test.mjs` 有 40 項自動測試驗證上述規則；`tests/srs.test.mjs` 有 7 項測試驗證單字解析與遺忘曲線排程；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
+`tests/rules.test.mjs` 有 41 項自動測試驗證上述規則；`tests/srs.test.mjs` 有 7 項測試驗證單字解析與遺忘曲線排程；`tests/functions.test.mjs` 有 12 項測試驗證通知的觸發、對象、勿擾時段與每日提醒。
 
 **推播**：每台裝置開啟通知後，把權杖寫到 `pushTokens/{自己的uid}`（只能寫自己的、任何用戶端都讀不到）。
 伺服器依 `devices` 判斷對象：媽媽的通知送到 `isMom` 的裝置；小孩的通知送到配對給該小孩、且不是媽媽的裝置。
