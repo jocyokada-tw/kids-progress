@@ -168,7 +168,15 @@ export const tts = onCall({ cors: true, memory: '256MiB', cpu: 1, timeoutSeconds
   return ttsHandler({ uid: req.auth.uid, fid: req.data && req.data.fid, text: req.data && req.data.text });
 });
 
-// ---------- 排程：白天每 30 分鐘（07:00～22:30，一天 32 次） ----------
-// 依序：前一天沒完成的順延（07:00 那次處理）→ 勿擾時段排隊的通知補發 → 放學後提醒 → 指定時間前 30 分鐘提醒 → 每日提醒 → 課後小記提醒
-// 夜裡沒有要做的事：通知都在勿擾時段內，順延改在早上 7 點處理（結果相同）。提醒時間要設在 07:00～22:30 之間。
-export const periodic = onSchedule({ schedule: '0,30 7-22 * * *', timeZone: TZ }, async () => { await runPeriodic(); });
+// ---------- 排程：配合放學時間，每 30 分鐘檢查一次 ----------
+// 每次依序：前一天沒完成的順延（早上 07:00 那次處理）→ 勿擾時段排隊的通知補發 → 放學後提醒 → 指定時間前 30 分鐘提醒 → 每日提醒 → 課後小記提醒。
+// 上課時間沒有要提醒的事，所以不執行：
+//   週一、二、四、五：07:00、07:30、16:00～22:30（一天 16 次）
+//   週三（中午放學）：07:00、07:30、12:00～22:30（24 次）
+//   週六、日：07:00～22:30（32 次）
+// 一週 152 次（原本每 30 分鐘一次是 336 次）。剛好 3 個排程工作：Cloud Scheduler 每個帳單帳戶免費 3 個，第 4 個起每個每月約 US$0.10。
+// 放學前設定的提醒時間（例如 15:00）會在放學後第一次執行時送出。改放學時間的話，改這裡的時間再重新部署。
+const runAll = async () => { await runPeriodic(); };
+export const periodic = onSchedule({ schedule: '0,30 7,16-22 * * 1,2,4,5', timeZone: TZ }, runAll);
+export const periodicWednesday = onSchedule({ schedule: '0,30 7,12-22 * * 3', timeZone: TZ }, runAll);
+export const periodicWeekend = onSchedule({ schedule: '0,30 7-22 * * 0,6', timeZone: TZ }, runAll);

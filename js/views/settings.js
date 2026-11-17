@@ -507,7 +507,7 @@ export function mountSettings(el) {
           <label class="field"><span>勿擾時段：從</span>${timeSelect('quietStart', n.quietStart)}</label>
           <label class="field"><span>到</span>${timeSelect('quietEnd', n.quietEnd)}</label>
         </div>
-        <p class="muted small">勿擾時段內的通知會先保留，時段結束後再一起送出（同類只送最新一則）。提醒只在 07:00～22:30 之間發送（為了節省雲端費用，夜裡排程不執行）。</p>
+        <p class="muted small">勿擾時段內的通知會先保留，時段結束後再一起送出（同類只送最新一則）。提醒只在孩子不在學校的時間檢查（週一、二、四、五 16:00 起，週三 12:00 起，週末 07:00 起，到 22:30 為止）；設在上課時間的提醒會在放學後送出。</p>
         <button class="btn btn-primary" type="submit">儲存通知設定</button>
       </form>`;
   }
