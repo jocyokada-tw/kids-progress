@@ -11,6 +11,8 @@ export const TTS_TAG = 'v1';
 // 依序嘗試：自然的美式女聲 → 系統預設美式語音
 const VOICES = [{ languageCode: 'en-US', name: 'en-US-Neural2-F' }, { languageCode: 'en-US', ssmlGender: 'FEMALE' }];
 const MAX_LEN = 160;
+// 呼叫 Google 合成的時間上限：卡住時不要一直等到函式逾時（逾時期間都會計費）
+const SYNTH_TIMEOUT_MS = 8000;
 // 每天最多合成的字元數（防止異常用量；一份 500 字的字庫含例句約 2 萬字元，只會合成一次）
 export const DAILY_CAP = 80000;
 
@@ -24,7 +26,8 @@ async function googleSynth(text) {
     const res = await fetch('https://texttospeech.googleapis.com/v1/text:synthesize', {
       method: 'POST',
       headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ input: { text }, voice, audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95 } })
+      body: JSON.stringify({ input: { text }, voice, audioConfig: { audioEncoding: 'MP3', speakingRate: 0.95 } }),
+      signal: AbortSignal.timeout(SYNTH_TIMEOUT_MS)
     });
     if (res.ok) return (await res.json()).audioContent;
     lastErr = `${res.status} ${(await res.text()).slice(0, 300)}`;
@@ -42,19 +45,23 @@ export async function ttsHandler({ uid, fid, text }, synth = googleSynth) {
     throw new HttpsError('invalid-argument', '文字格式不符');
   }
   const fam = db.doc(`families/${fid}`);
-  if (!(await fam.collection('devices').doc(uid).get()).exists) throw new HttpsError('permission-denied', '裝置尚未配對');
-
   const ref = fam.collection('tts').doc(ttsId(t));
-  const hit = await ref.get();
+  // 裝置檢查和快取一起讀（少一次來回）
+  const [dev, hit] = await Promise.all([fam.collection('devices').doc(uid).get(), ref.get()]);
+  if (!dev.exists) throw new HttpsError('permission-denied', '裝置尚未配對');
   if (hit.exists) return { audio: hit.data().audio, cached: true };
 
-  // 每日用量上限
+  // 每日用量上限（交易：同時有好幾個字在合成時也不會少算）
   const today = taipeiNow().date;
   const usageRef = fam.collection('meta').doc('ttsUsage');
-  const usage = (await usageRef.get()).data() || {};
-  const used = usage.date === today ? usage.chars || 0 : 0;
-  if (used + t.length > DAILY_CAP) throw new HttpsError('resource-exhausted', '今天的語音合成量已達上限');
-  await usageRef.set({ date: today, chars: used + t.length });
+  const ok = await db.runTransaction(async (tx) => {
+    const usage = (await tx.get(usageRef)).data() || {};
+    const used = usage.date === today ? usage.chars || 0 : 0;
+    if (used + t.length > DAILY_CAP) return false;
+    tx.set(usageRef, { date: today, chars: used + t.length });
+    return true;
+  });
+  if (!ok) throw new HttpsError('resource-exhausted', '今天的語音合成量已達上限');
 
   const audio = await synth(t);
   await ref.set({ text: t, audio, createdAt: FieldValue.serverTimestamp() });

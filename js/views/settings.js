@@ -358,7 +358,7 @@ export function mountSettings(el) {
         </div>
         <div class="field-row">
           <label class="field"><span>補寫少給幾點</span><input name="lateDeduct" type="number" inputmode="numeric" min="0" max="99" value="${c.lateDeduct}"></label>
-          <label class="field"><span>溫和提醒時間</span>${timeSelect('reminderTime', c.reminderTime)}</label>
+          <label class="field"><span>溫和提醒時間</span>${dayTimeSelect('reminderTime', c.reminderTime)}</label>
         </div>
         <div class="field-row">
           <label class="field"><span>週末記事錄整理點數</span><input name="weeklyPoints" type="number" inputmode="numeric" min="0" max="99" value="${c.weeklyPoints}"></label>
@@ -472,6 +472,9 @@ export function mountSettings(el) {
   // ---------- 通知 ----------
   const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
   const timeSelect = (name, val) => `<select class="select" name="${name}">${HALF_HOURS.map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
+  // 提醒時間：排程只在 07:00～22:30 執行，所以只能選這段時間
+  const DAY_HALF_HOURS = HALF_HOURS.filter((t) => t >= '07:00' && t <= '22:30');
+  const dayTimeSelect = (name, val) => `<select class="select" name="${name}">${(DAY_HALF_HOURS.includes(val) ? DAY_HALF_HOURS : [...DAY_HALF_HOURS, val]).map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
   const sw = (name, on, label) => `<label class="switch-row"><span>${label}</span><span class="switch"><input type="checkbox" name="${name}" ${on ? 'checked' : ''}><span></span></span></label>`;
   function drawNotify() {
     const n = notifySettings();
@@ -497,14 +500,14 @@ export function mountSettings(el) {
         ${sw('kid.journal', n.kid.journal, '📝 課後小記：上課日還沒寫時溫和提醒一次')}
         ${sw('kid.journalComment', n.kid.journalComment, '💬 媽媽回應了課後小記')}
         <div class="field-row" style="margin-top:12px">
-          <label class="field"><span>放學後提醒時間</span>${timeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
-          <label class="field"><span>每日提醒時間</span>${timeSelect('dailyTime', n.dailyTime)}</label>
+          <label class="field"><span>放學後提醒時間</span>${dayTimeSelect('afterSchoolTime', n.afterSchoolTime)}</label>
+          <label class="field"><span>每日提醒時間</span>${dayTimeSelect('dailyTime', n.dailyTime)}</label>
         </div>
         <div class="field-row">
           <label class="field"><span>勿擾時段：從</span>${timeSelect('quietStart', n.quietStart)}</label>
           <label class="field"><span>到</span>${timeSelect('quietEnd', n.quietEnd)}</label>
         </div>
-        <p class="muted small">勿擾時段內的通知會先保留，時段結束後再一起送出（同類只送最新一則）。</p>
+        <p class="muted small">勿擾時段內的通知會先保留，時段結束後再一起送出（同類只送最新一則）。提醒只在孩子不在學校的時間檢查（週一、二、四、五 16:00 起，週三 12:00 起，週末 07:00 起，到 22:30 為止）；設在上課時間的提醒會在放學後送出。</p>
         <button class="btn btn-primary" type="submit">儲存通知設定</button>
       </form>`;
   }

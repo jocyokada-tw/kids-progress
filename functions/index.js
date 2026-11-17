@@ -3,14 +3,19 @@
 import { onDocumentCreated, onDocumentUpdated, onDocumentWritten } from 'firebase-functions/v2/firestore';
 import { onSchedule } from 'firebase-functions/v2/scheduler';
 import { onCall, HttpsError } from 'firebase-functions/v2/https';
-import { ttsHandler } from './tts.js';
 import { setGlobalOptions } from 'firebase-functions/v2';
 import { db, TZ, notify, kidName, clip, md, runPeriodic } from './core.js';
-import { onNoteWritten, onWeeklyWritten } from './journal.js';
+
+// 只有少數函式用到的模組（課後小記、雲端語音）在函式被呼叫時才載入，其他函式冷啟動時不用載入
+const journal = () => import('./journal.js');
+const ttsModule = () => import('./tts.js');
 
 // ⚠️ 必須和 Firestore 資料庫的位置相同（Firebase 主控台 → Firestore → 資料庫位置）
 const REGION = 'asia-east1';
-setGlobalOptions({ region: REGION, maxInstances: 2 });
+// cpu: 'gcf_gen1'：每個函式只配 1/6 顆 CPU（第 2 代預設是 1 顆）。這些函式大部分時間在等資料庫和推播回應，
+// 等待的時間也照 CPU 計費，用小的 CPU 比較省；代價是冷啟動慢幾秒（通知晚幾秒送到）。雲端語音另外設 1 顆，孩子不用等。
+// 小 CPU 一次只處理一個事件，所以 maxInstances 放寬到 5（沒用到不收費）。
+setGlobalOptions({ region: REGION, maxInstances: 5, cpu: 'gcf_gen1' });
 
 // ---------- 進度 ----------
 export const onTaskCreated = onDocumentCreated('families/{fid}/tasks/{id}', async (event) => {
@@ -137,19 +142,41 @@ export const onMessageCreated = onDocumentCreated('families/{fid}/threads/{kidId
 // ---------- 課後小記：依填寫內容自動入帳、媽媽留言通知 ----------
 export const onClassNoteWritten = onDocumentWritten('families/{fid}/classNotes/{id}', async (event) => {
   const { fid, id } = event.params;
+  const before = event.data.before.exists ? event.data.before.data() : null;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  // 入帳後伺服器寫回 levels／awarded 也會觸發一次：孩子的內容和媽媽留言都沒變，就直接結束
+  const KID = ['skipped', 'classes', 'mood', 'learned', 'interesting', 'question', 'memorable', 'momComment'];
+  if (!after || (before && KID.every((k) => JSON.stringify(before[k] ?? null) === JSON.stringify(after[k] ?? null)))) return;
+  const { onNoteWritten } = await journal();
   await onNoteWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 export const onWeeklyJournalWritten = onDocumentWritten('families/{fid}/weeklyJournals/{id}', async (event) => {
   const { fid, id } = event.params;
+  const after = event.data.after.exists ? event.data.after.data() : null;
+  // 草稿自動儲存也會觸發：還沒按完成、或已經入帳的，直接結束（不載入其他模組）
+  if (!after || after.status !== 'done' || after.awarded) return;
+  const { onWeeklyWritten } = await journal();
   await onWeeklyWritten(fid, id, event.data.before.exists ? event.data.before.data() : null, event.data.after.exists ? event.data.after.data() : null);
 });
 
 // ---------- 雲端語音（每日單字的發音） ----------
-export const tts = onCall({ cors: true, memory: '256MiB', timeoutSeconds: 30 }, async (req) => {
+// 逾時 20 秒：合成本身另外限制 8 秒（見 tts.js），不會卡住到逾時
+export const tts = onCall({ cors: true, memory: '256MiB', cpu: 1, timeoutSeconds: 20 }, async (req) => {
   if (!req.auth) throw new HttpsError('unauthenticated', '需要登入');
+  const { ttsHandler } = await ttsModule();
   return ttsHandler({ uid: req.auth.uid, fid: req.data && req.data.fid, text: req.data && req.data.text });
 });
 
-// ---------- 每 30 分鐘：每日提醒、勿擾時段結束後補發 ----------
-export const periodic = onSchedule({ schedule: '0,30 * * * *', timeZone: TZ }, async () => { await runPeriodic(); });
+// ---------- 排程：配合放學時間，每 30 分鐘檢查一次 ----------
+// 每次依序：前一天沒完成的順延（早上 07:00 那次處理）→ 勿擾時段排隊的通知補發 → 放學後提醒 → 指定時間前 30 分鐘提醒 → 每日提醒 → 課後小記提醒。
+// 上課時間沒有要提醒的事，所以不執行：
+//   週一、二、四、五：07:00、07:30、16:00～22:30（一天 16 次）
+//   週三（中午放學）：07:00、07:30、12:00～22:30（24 次）
+//   週六、日：07:00～22:30（32 次）
+// 一週 152 次（原本每 30 分鐘一次是 336 次）。剛好 3 個排程工作：Cloud Scheduler 每個帳單帳戶免費 3 個，第 4 個起每個每月約 US$0.10。
+// 放學前設定的提醒時間（例如 15:00）會在放學後第一次執行時送出。改放學時間的話，改這裡的時間再重新部署。
+const runAll = async () => { await runPeriodic(); };
+export const periodic = onSchedule({ schedule: '0,30 7,16-22 * * 1,2,4,5', timeZone: TZ }, runAll);
+export const periodicWednesday = onSchedule({ schedule: '0,30 7,12-22 * * 3', timeZone: TZ }, runAll);
+export const periodicWeekend = onSchedule({ schedule: '0,30 7-22 * * 0,6', timeZone: TZ }, runAll);
