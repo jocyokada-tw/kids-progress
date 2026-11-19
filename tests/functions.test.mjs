@@ -459,3 +459,27 @@ test('課後小記：兩類課各自算點數再加總；之後補寫另一堂�
   await db.doc(`${F}/classNotes/kidA_2026-11-17`).set({ kidId: 'kidA', date: '2026-11-17', classes: { math_science: { mood: 'fun', learned: 'x' } } });
   assert.deepEqual(await journalReminder('home', s, at('2026-11-17', '18:30')), []);   // 新格式寫了一堂就不提醒
 });
+
+test('照顧紀錄提醒：還沒開啟不提醒；到時間還沒記才提醒媽媽，早晚各一次；不受勿擾時段限制', async () => {
+  const { careReminder } = await import('../functions/care.js');
+  await reset({ quietStart: '22:00', quietEnd: '07:00' });
+  let s = await loadSettings('home');
+  assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:30')), []);       // 還沒開啟
+  await db.doc(`${F}/private/care`).set({ kids: ['kidA'] });
+  assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:00')), []);       // 還沒到 07:30
+  assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:30')), [{ kidId: 'kidA', part: 'morning' }]);
+  assert.deepEqual(await careReminder('home', s, at('2026-11-19', '16:00')), []);       // 早上只提醒一次
+  await db.doc(`${F}/momLogs/kidA_2026-11-19`).set({ kidId: 'kidA', date: '2026-11-19', meds: { avamys: { status: 'taken' } } });
+  assert.deepEqual(await careReminder('home', s, at('2026-11-19', '22:00')), [{ kidId: 'kidA', part: 'evening' }]);   // 22:00 是勿擾時段，照樣送
+  const l = (await logs()).filter((m) => m.who === 'mom');
+  assert.equal(l.length, 2);
+  assert.match(l.find((m) => m.title.includes('今天')).body, /情緒/);
+  assert.equal((await queue()).length, 0);
+  // 隔天早上已經記好了 → 不提醒
+  await db.doc(`${F}/momLogs/kidA_2026-11-20`).set({ kidId: 'kidA', date: '2026-11-20', meds: { concerta: { status: 'taken' } } });
+  assert.deepEqual(await careReminder('home', s, at('2026-11-20', '07:30')), []);
+  // 媽媽關掉這類通知
+  await db.doc(`${F}/meta/settings`).set({ notify: { mom: { care: false } } }, { merge: true });
+  s = await loadSettings('home');
+  assert.deepEqual(await careReminder('home', s, at('2026-11-21', '07:30')), []);
+});

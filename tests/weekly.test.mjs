@@ -96,7 +96,7 @@ test('學期範圍與 CSV', () => {
     { date: '2026-11-13', skipped: true },
     { date: '2026-07-01', learned: 'old' }
   ], prompts, cfg, 'kidA', '2026-08-01', '2027-01-31');
-  assert.ok(csv.startsWith('﻿日期,星期,課程,心情'));
+  assert.ok(csv.startsWith('\ufeff日期,星期,課程,心情'));
   const lines = csv.trim().split('\r\n');
   assert.equal(lines.length, 5);
   assert.equal(lines[1], '2026-11-10,二,數理,無聊,,,這個有點難，我跟不太上,,"分數, ""通分""",,,,基本,1,是,,');

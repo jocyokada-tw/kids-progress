@@ -441,3 +441,15 @@ test('每日單字額外練習：完成後孩子只能把次數加 1、多記一
   await assertFails(updateDoc(ref, { wrong: [] }));
   await assertFails(updateDoc(doc(db('a'), F, 'wordSessions/kidB_2026-11-17'), { practice: increment(1) }));
 });
+
+test('照顧紀錄：只有媽媽裝置能讀寫；孩子的裝置讀不到紀錄和藥物設定', async () => {
+  const m = db('mom'), a = db('a');
+  await assertSucceeds(setDoc(doc(m, F, 'momLogs/kidA_2026-11-19'), { kidId: 'kidA', date: '2026-11-19', meds: { concerta: { status: 'taken' } } }));
+  await assertSucceeds(getDoc(doc(m, F, 'momLogs/kidA_2026-11-19')));
+  await assertSucceeds(setDoc(doc(m, F, 'private/care'), { kids: ['kidA'], meds: [] }));
+  await assertFails(getDoc(doc(a, F, 'momLogs/kidA_2026-11-19')));
+  await assertFails(getDocs(query(collection(a, F, 'momLogs'), where('kidId', '==', 'kidA'))));
+  await assertFails(setDoc(doc(a, F, 'momLogs/kidA_2026-11-20'), { kidId: 'kidA' }));
+  await assertFails(getDoc(doc(a, F, 'private/care')));
+  await assertFails(getDoc(doc(db('stranger'), F, 'momLogs/kidA_2026-11-19')));
+});
