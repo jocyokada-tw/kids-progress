@@ -13,6 +13,8 @@ import { REVIEW_TYPES, WORD_DEFAULTS, watchWordLists, saveWordList, archiveWordL
 import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
 import { journalSettings, CATEGORIES, MOOD_EMOJI } from '../utils/journal.js';
 import { semesterRange, notesCsv, weekliesCsv } from '../utils/weekly.js';
+import { careSettings, WHEN_LABEL } from '../utils/care.js';
+import { saveCareSettings } from '../store/care.js';
 import { loadPrompts, savePrompts, resetPrompts, getNotesOnce, getWeekliesOnce } from '../store/journal.js';
 
 const WD_ORDER = [1, 2, 3, 4, 5, 6, 0];
@@ -40,6 +42,7 @@ export function mountSettings(el) {
       <p class="muted small">每天學幾個新單字，並依遺忘曲線自動安排複習（答對後隔 1、2、4、7、15、30、60 天再考）。補習班單字會優先學，考前一天和當天整份複習。</p>
       <div id="sWordLists"></div><hr><div id="sWordCfg"></div></section>
     <section class="card"><h2>📝 課後小記</h2><div id="sJournal"></div></section>
+    <section class="card"><h2>🩺 照顧紀錄</h2><div id="sCare"></div></section>
     <section class="card"><h2>🎁 兌換項目</h2>
       <p class="muted small">孩子申請兌換時會先預留點數，媽媽核可後才正式扣點。</p>
       <div id="sRewards"></div></section>
@@ -469,6 +472,34 @@ export function mountSettings(el) {
     await saveFile(name, text);
   }
 
+  // ---------- 照顧紀錄（設定存在 private/care，只有媽媽裝置讀得到） ----------
+  const medRow = (m) => `<div class="cmed-edit" data-id="${esc(m.id || '')}">
+      <div class="field-row">
+        <label class="field"><span>藥名</span><input name="mName" maxlength="40" value="${esc(m.name || '')}"></label>
+        <label class="field"><span>什麼時候</span><select class="select" name="mWhen">${Object.entries(WHEN_LABEL).map(([k, l]) => `<option value="${k}" ${m.when === k ? 'selected' : ''}>${l}</option>`).join('')}</select></label>
+      </div>
+      <label class="field"><span>用法</span><input name="mDose" maxlength="60" value="${esc(m.dose || '')}" placeholder="例如：早上一顆"></label>
+      <label class="field"><span>要觀察的副作用（用「、」分開，可空白）</span><input name="mSide" maxlength="120" value="${esc((m.sideEffects || []).join('、'))}"></label>
+      <button type="button" class="btn btn-sm btn-ghost" data-act="careMedRemove">✕ 刪除這個藥物</button></div>`;
+  function drawCare() {
+    const c = careSettings(state.care);
+    const on = !!state.care;
+    $('#sCare').innerHTML = `
+      <p class="muted small">記錄用藥、情緒、學習和睡眠。只有媽媽的裝置看得到，孩子的裝置讀不到這些資料。${on ? '' : '<br><strong>目前還沒開啟</strong>：確認下面的內容後按「儲存」就會開啟。'}</p>
+      <form id="careForm">
+        <div class="field"><span>要記錄哪個孩子</span>${chipChecks('careKids', KIDS.map((k) => ({ value: k, label: memberName(k) })), c.kids)}</div>
+        <div class="field-row">
+          <label class="field"><span>早上提醒</span>${dayTimeSelect('morningTime', c.morningTime)}</label>
+          <label class="field"><span>晚上提醒</span>${dayTimeSelect('eveningTime', c.eveningTime)}</label>
+        </div>
+        <p class="field-hint">還沒記才提醒，早晚各一次，不受勿擾時段限制。平日早上只有 07:00、07:30 會檢查，所以早上提醒請設在 07:30 以前。</p>
+        <h3 class="small muted">藥物</h3>
+        <div id="careMeds">${c.meds.map(medRow).join('')}</div>
+        <button type="button" class="btn btn-sm btn-ghost" data-act="careMedAdd">＋ 新增藥物</button>
+        <div class="btn-row" style="justify-content:flex-start;margin-top:12px"><button class="btn btn-primary" type="submit">${on ? '儲存照顧紀錄設定' : '儲存並開啟'}</button></div>
+      </form>`;
+  }
+
   // ---------- 通知 ----------
   const HALF_HOURS = Array.from({ length: 48 }, (_, i) => `${String(Math.floor(i / 2)).padStart(2, '0')}:${i % 2 ? '30' : '00'}`);
   const timeSelect = (name, val) => `<select class="select" name="${name}">${HALF_HOURS.map((t) => `<option ${t === val ? 'selected' : ''}>${t}</option>`).join('')}</select>`;
@@ -487,6 +518,7 @@ export function mountSettings(el) {
         ${sw('mom.message', n.mom.message, '💬 孩子的留言')}
         ${sw('mom.carry', n.mom.carry, '⏰ 孩子前一天沒完成、自動順延的作業（早上）')}
         ${sw('mom.due', n.mom.due, '⚠️ 作業過了期限還沒完成（早上）')}
+        ${sw('mom.care', n.mom.care, '🩺 照顧紀錄：早上、晚上還沒記時提醒')}
         <h3 class="small muted">孩子會收到</h3>
         ${sw('kid.taskReview', n.kid.taskReview, '✅ 進度被確認或退回（含建議）')}
         ${sw('kid.itemReview', n.kid.itemReview, '⭐ 點數入帳、被退回、額外獎勵')}
@@ -535,6 +567,17 @@ export function mountSettings(el) {
         await saveSettings({ words: { perDay: n(d.perDay, 1, 20), points: n(d.points, 0, 99), perfectBonus: n(d.perfectBonus, 0, 99), order: d.order === 'list' ? 'list' : 'random',
           types: new FormData(f).getAll('types').filter((t) => REVIEW_TYPES.includes(t)) } });
         toast('單字設定已儲存', 'ok');
+      } else if (f.id === 'careForm') {
+        const fd = new FormData(f);
+        const meds = [...f.querySelectorAll('.cmed-edit')].map((row, i) => ({
+          id: row.dataset.id || `m${Date.now().toString(36)}${i}`,
+          name: row.querySelector('[name=mName]').value.trim(),
+          dose: row.querySelector('[name=mDose]').value.trim(),
+          when: row.querySelector('[name=mWhen]').value,
+          sideEffects: row.querySelector('[name=mSide]').value.split(/[、,，]/).map((x) => x.trim()).filter(Boolean)
+        })).filter((m) => m.name);
+        await saveCareSettings({ kids: fd.getAll('careKids').filter((k) => KIDS.includes(k)), morningTime: d.morningTime, eveningTime: d.eveningTime, meds });
+        toast('照顧紀錄設定已儲存', 'ok');
       } else if (f.id === 'journalForm') {
         const fd = new FormData(f);
         const n = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.round(Number(v) || 0)));
@@ -590,6 +633,8 @@ export function mountSettings(el) {
           $('#subjRows .subj-row:last-child input[name=name]').focus();
           break;
         case 'removeSubject': b.closest('.subj-row').remove(); break;
+        case 'careMedAdd': $('#careMeds').insertAdjacentHTML('beforeend', medRow({ when: 'morning', sideEffects: [] })); break;
+        case 'careMedRemove': b.closest('.cmed-edit').remove(); break;
         case 'jAdd': b.closest('.jsched').querySelector('.jsched-rows').insertAdjacentHTML('beforeend', jRow({ weekday: 1, category: 'humanities', count: 1 })); break;
         case 'jRemove': b.closest('.jsched-row').remove(); break;
         case 'jPrompts': await editPrompts(); break;
@@ -624,7 +669,7 @@ export function mountSettings(el) {
     } catch (err) { showError(err); }
   });
 
-  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify(); drawWordCfg(); drawWordLists(); drawJournal();
+  drawKids(); drawRules(); subRoutines(); drawGoals(); drawSubjects(); drawRewards(); drawNotify(); drawWordCfg(); drawWordLists(); drawJournal(); drawCare();
   mountPushCard($('#sPushDevice'));
   const unsubs = [
     watchRewards((l) => { rewards = l; drawRewards(); }, (e) => showError(e, '讀取兌換項目')),

@@ -6,6 +6,7 @@ import { watchPendingItems } from '../store/checklist.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { watchThread, watchMessages, unreadCount } from '../store/messages.js';
 import { todayStr } from '../utils/date.js';
+import { careSettings, usesCare } from '../utils/care.js';
 
 const TABS = [
   { name: 'home', icon: '🏠', label: '首頁' },
@@ -75,7 +76,9 @@ export function mountShell(root) {
           <span>${esc(m.emoji)}</span><span class="kid-chip-name">${esc(m.name)}</span>${badge(n)}</button>`;
       }).join('')}</div>` : ''}`;
 
-    const tabs = [...TABS, ...(isMom() ? [{ name: 'settings', icon: '⚙️', label: '設定' }] : [])];
+    // 照顧紀錄：只有媽媽、而且這個孩子有開啟才出現
+    const care = isMom() && state.care && usesCare(careSettings(state.care), kid) ? [{ name: 'care', icon: '🩺', label: '紀錄' }] : [];
+    const tabs = [...TABS, ...care, ...(isMom() ? [{ name: 'settings', icon: '⚙️', label: '設定' }] : [])];
     tabsEl.innerHTML = tabs.map((t) => {
       const path = t.name === 'settings' ? '/settings' : `/k/${kid}/${t.name}`;
       let n = 0;

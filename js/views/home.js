@@ -16,6 +16,8 @@ import { journalSettings, usesJournal, writableDates, isClassDay, catsOn, needsW
 import { watchNotes, watchWeekly } from '../store/journal.js';
 import { weekClasses, isWeekend } from '../utils/weekly.js';
 import { noteStatus } from './journal.js';
+import { careSettings, usesCare, morningDone, eveningDone } from '../utils/care.js';
+import { watchLog } from '../store/care.js';
 
 export const TASK_STATUS = {
   pending: '<span class="tag tag-wait">待媽媽確認</span>',
@@ -42,6 +44,7 @@ export function mountHome(el, { kid }) {
     <section class="card" id="wordsCard" hidden></section>
     <section class="card" id="journalCard" hidden></section>
     <section class="card" id="weeklyCard" hidden></section>
+    <section class="card" id="careCard" hidden></section>
     <div class="grid-2">
       <section class="card">
         <div class="card-head"><h2>今日清單 <span class="muted small">${labelMD(today)}</span></h2>
@@ -161,6 +164,19 @@ export function mountHome(el, { kid }) {
           <button class="btn ${!isMom() && !done ? 'btn-primary' : 'btn-ghost'}" data-go="/k/${kid}/weekly">${isMom() || done ? '查看' : w ? '繼續 ▶' : '開始 ▶'}</button></div>`;
       }, (e) => showError(e, '讀取整理')));
     }
+  }
+
+  // 照顧紀錄（只有媽媽）：今天早上、晚上記了沒
+  const ccfg = careSettings(state.care);
+  if (isMom() && state.care && usesCare(ccfg, kid)) {
+    unsubs.push(watchLog(kid, today, (l) => {
+      const c = $('#careCard');
+      c.hidden = false;
+      const st = (ok) => (ok ? '<span class="tag tag-ok">✓</span>' : '<span class="tag">還沒記</span>');
+      c.innerHTML = `<div class="push-card"><span style="font-size:2rem">🩺</span>
+        <div class="grow"><strong>照顧紀錄</strong><br><span class="small">🌅 早上 ${st(morningDone(l, ccfg))}　🌙 晚上 ${st(eveningDone(l, ccfg))}</span></div>
+        <button class="btn btn-ghost" data-go="/k/${kid}/care">記錄</button></div>`;
+    }, (e) => showError(e, '讀取照顧紀錄')));
   }
 
   if (shouldPromptPush()) mountPushCard($('#pushPrompt'), { compact: true });

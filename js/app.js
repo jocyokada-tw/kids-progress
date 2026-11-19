@@ -3,6 +3,8 @@ import { state, setState, onState, allowedProfiles, isMom, KIDS } from './state.
 import { parseRoute, go } from './router.js';
 import { watchMyDevice } from './store/devices.js';
 import { watchMembers, watchSettings } from './store/family.js';
+import { watchCareSettings } from './store/care.js';
+import { mountCare } from './views/care.js';
 import { showError, esc } from './ui.js';
 import { mountShell } from './views/shell.js';
 import { mountPair } from './views/pair.js';
@@ -20,7 +22,7 @@ import { initNet, showUpdateBar } from './net.js';
 import { refreshPushToken } from './push.js';
 
 const appEl = document.getElementById('app');
-const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, weekly: mountWeekly, points: mountPoints, settings: mountSettings };
+const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, weekly: mountWeekly, care: mountCare, points: mountPoints, settings: mountSettings };
 
 let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
 let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }
@@ -36,23 +38,25 @@ export function enterProfile(p) {
   go(`/k/${kid}/home`);
 }
 
-function startFamilyWatchers() {
+function startFamilyWatchers(dev) {
   stopFamilyWatchers();
   familyUnsubs = [
     watchMembers((members) => setState({ members, membersReady: true }), (e) => { showError(e, '讀取成員'); setState({ membersReady: true }); }),
     watchSettings((s) => setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s }, settingsReady: true }), (e) => { showError(e, '讀取設定'); setState({ settingsReady: true }); })
   ];
+  // 照顧紀錄的設定只有媽媽裝置讀得到（private/care）
+  if (dev && dev.isMom) familyUnsubs.push(watchCareSettings((c) => setState({ care: c }), () => setState({ care: null })));
 }
 function stopFamilyWatchers() { familyUnsubs.forEach((u) => u()); familyUnsubs = []; state.membersReady = false; state.settingsReady = false; }
 
 /** 名字、頭像、顏色改變時，畫面要重畫 */
-const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null) + JSON.stringify(state.settings.journal || null);
+const membersSig = () => JSON.stringify(Object.entries(state.members).sort().map(([k, m]) => [k, m.name, m.emoji, m.color, m.goal || null])) + JSON.stringify(state.settings.subjects || null) + JSON.stringify(state.settings.journal || null) + JSON.stringify((state.care && state.care.kids) || null);
 
 let devUnsub = null;
 function watchDevice(uid) {
   devUnsub && devUnsub();
   devUnsub = watchMyDevice(uid, (dev) => {
-    if (dev && !state.device) { startFamilyWatchers(); refreshPushToken(); }
+    if (dev && !state.device) { startFamilyWatchers(dev); refreshPushToken(); }
     if (!dev) stopFamilyWatchers();
     setState(dev ? { device: dev } : { device: null, profile: null });
   }, (e) => { showError(e, '讀取裝置'); setState({ device: null }); });
@@ -92,7 +96,7 @@ function render() {
   }
 
   // ---- 已選擇身分：權限保護 ----
-  if (route.name === 'settings' && !isMom()) return go(`/k/${state.profile}/home`);
+  if ((route.name === 'settings' || route.name === 'care') && !isMom()) return go(`/k/${state.profile}/home`);
   if (route.name !== 'settings') {
     if (!isMom() && route.kid !== state.profile) return go(`/k/${state.profile}/${VIEWS[route.name] ? route.name : 'home'}`);
     if (!KIDS.includes(route.kid)) return go(`/k/kidA/home`);

@@ -561,3 +561,25 @@ fieldset.pe legend { padding: 0 6px; font-weight: 600; }
 .jclass-head { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 8px; }
 .jclass-head h3 { margin: 0; font-size: 1.1rem; }
 .jcard .jclass { background: transparent; padding: 10px 12px; }
+
+/* ---------- 照顧紀錄 ---------- */
+.care-nav { display: flex; align-items: center; gap: 10px; margin: 6px 0 12px; flex-wrap: wrap; }
+.care-nav strong { min-width: 7em; text-align: center; }
+.cmed { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 10px 0; border-bottom: 1px dashed var(--line); }
+.cmed .grow { flex: 1 1 160px; }
+.cmed .cnote { flex: 1 1 100%; }
+.ctime, .cnote, .csub input[type=time] { min-height: 40px; padding: 6px 10px; border: 2px solid var(--line); border-radius: 10px; background: #fff; font-size: 17px; }
+.cnote { width: 100%; margin-top: 6px; }
+.csub { padding: 12px 0 4px; border-bottom: 1px dashed var(--line); }
+.csub:last-child { border-bottom: 0; }
+.cscore { display: grid; grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 8px 0 2px; }
+.cscore .jchoice { display: flex; flex-direction: column; align-items: center; padding: 6px 2px; border-radius: 12px; font-size: .8rem; text-align: center; }
+.cscore-emoji { font-size: 1.4rem; }
+.csum { margin: 6px 0; padding-left: 1.2em; font-size: .95rem; }
+.ctable-wrap { overflow-x: auto; }
+.ctable { width: 100%; border-collapse: collapse; font-size: .9rem; }
+.ctable th, .ctable td { padding: 6px 4px; border-bottom: 1px solid var(--line); text-align: left; white-space: nowrap; }
+.ctable td.c, .ctable th { text-align: center; }
+.ctable tr[data-act] { cursor: pointer; }
+.ctable tr.on { background: color-mix(in srgb, var(--kid) 10%, white); }
+.cmed-edit { padding: 10px 12px; margin-bottom: 10px; border: 1px solid var(--line); border-radius: 12px; }
