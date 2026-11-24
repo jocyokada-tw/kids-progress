@@ -4,14 +4,20 @@ import assert from 'node:assert/strict';
 import { careSettings, sleepMinutes, fmtDuration, morningDone, eveningDone, watchItems, careCsv } from '../js/utils/care.js';
 import { careSettings as srvSettings, morningDone as srvMorning, eveningDone as srvEvening } from '../functions/care.js';
 
-const cfg = careSettings({});
+// 預設沒有藥物；測試用兩種：早上一種（有副作用）、睡前一種
+const MEDS = [
+  { id: 'concerta', name: '利長能', dose: '早上一顆', when: 'morning', sideEffects: ['胃口不佳', '情緒低落', '不易入睡'] },
+  { id: 'avamys', name: '艾敏釋鼻用噴液懸浮劑', dose: '睡前兩個鼻孔各噴 2 下', when: 'bedtime', sideEffects: [] }];
+const cfg = careSettings({ meds: MEDS });
 
-test('預設：利長能（早上）、艾敏釋（睡前）；副作用清單', () => {
+test('預設沒有藥物；設定的藥物與副作用清單', () => {
+  assert.deepEqual(careSettings({}).meds, []);
+  assert.deepEqual(srvSettings({}).meds, []);
   assert.deepEqual(cfg.meds.map((m) => [m.name, m.when]), [['利長能', 'morning'], ['艾敏釋鼻用噴液懸浮劑', 'bedtime']]);
   assert.deepEqual(watchItems(cfg), ['胃口不佳', '情緒低落', '不易入睡']);
   assert.equal(cfg.morningTime, '07:30');
   assert.equal(cfg.eveningTime, '22:00');
-  assert.deepEqual(srvSettings({}), cfg);
+  assert.deepEqual(srvSettings({ meds: MEDS }), cfg);
 });
 
 test('睡眠時數：跨午夜、午夜後才睡、缺資料', () => {

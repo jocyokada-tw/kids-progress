@@ -6,6 +6,7 @@ import { todayStr, weekday } from '../utils/date.js';
 import { state } from '../state.js';
 import { watchWordLists, WORD_DEFAULTS } from './words.js';
 import { isLateDone, latePoints, taipeiStamp, deadlineOf } from '../utils/timed.js';
+import { feature } from '../features.js';
 
 // 每日清單項目：items/{kidId}_{date}_{sourceId}
 // 由「當天已確認的進度」＋「符合星期的固定事項」自動產生。文件 ID 固定，所以不會重複產生。
@@ -52,7 +53,7 @@ export function watchChecklist(kidId, date, { canReconcile, onItems, onError }) 
 
   const update = () => {
     if (!routines || !tasks || !items || !wordLists) return;
-    const hasWords = wordLists.some((l) => (l.kids || []).includes(kidId) && l.count > 0);
+    const hasWords = feature('words') && wordLists.some((l) => (l.kids || []).includes(kidId) && l.count > 0);
     const expected = expectedFor(kidId, date, routines, tasks, hasWords);
     // 今天和過去的日子：已經出現在清單上的項目都要留著顯示。
     // 之後被改期、退回重排或刪掉來源的項目，標成「已改期／取消」但仍算在當天，避免那天被誤判為全部完成。

@@ -15,3 +15,13 @@ export const vapidKey = "BHSelZpxTkJn2LWgAjkxLc2LsBsp-U03GEoku4D7WSaPfN0lUJZfgum
 
 // 家庭代號：同一個家庭的所有裝置必須相同。只用英文、數字、底線。
 export const FAMILY_ID = "home";
+
+// 功能開關：不需要的功能改成 false，畫面上就不會出現（資料不會刪除，改回 true 就回來）。
+// 改完提交到 GitHub，等網頁更新後，在 App 裡按「檢查更新」。
+export const FEATURES = {
+  messages: true,   // 💬 留言板
+  rewards: true,    // 🎁 兌換獎勵與目標
+  words: true,      // 📖 每日單字
+  journal: true,    // 📝 課後小記與週末記事錄整理
+  care: true        // 🩺 照顧紀錄（媽媽記錄用藥、情緒、學習、睡眠）
+};

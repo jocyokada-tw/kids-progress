@@ -30,7 +30,7 @@ Firestore Database → 頁面上方或「設定」中的「位置」。
 2. 依序貼上下面的指令，每貼一行按一次 Enter：
 
 ```bash
-git clone https://github.com/jocyokada-tw/kids-progress.git
+git clone https://github.com/你的GitHub帳號/kids-progress.git
 ```
 
 ```bash
@@ -44,7 +44,7 @@ npx firebase-tools@15.34.2 login --no-localhost
 （會顯示一個網址：打開它、登入 Google、按允許，再把畫面上的授權碼貼回指令視窗。）
 
 ```bash
-npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-progress-0927
+npx firebase-tools@15.34.2 deploy --only functions,firestore --project 你的專案ID
 ```
 
 - 第一次部署會自動啟用幾個需要的 Google Cloud 服務，大約要等 3～5 分鐘。
@@ -59,7 +59,7 @@ cd ~/kids-progress && git pull && (cd functions && npm install)
 ```
 
 ```bash
-npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-progress-0927
+npx firebase-tools@15.34.2 deploy --only functions,firestore --project 你的專案ID
 ```
 
 ## 5. 每台裝置開啟通知
@@ -81,8 +81,8 @@ npx firebase-tools@15.34.2 deploy --only functions,firestore --project kids-prog
 每日單字的發音預設使用 Google 的雲端語音，比 iPhone 內建的聲音自然。需要做一次設定：
 
 1. 用同一個 Google 帳號打開
-   <https://console.cloud.google.com/apis/library/texttospeech.googleapis.com?project=kids-progress-0927>，
-   確認上方的專案是 `kids-progress-0927`，按「**啟用**」。
+   <https://console.cloud.google.com/apis/library/texttospeech.googleapis.com>，
+   確認上方選的是你的 Firebase 專案，按「**啟用**」。
 2. 在 Cloud Shell 執行上面「之後通知程式或規則有更新時」的兩行指令，重新部署。
 
 運作方式與費用：

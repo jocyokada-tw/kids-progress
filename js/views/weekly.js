@@ -110,7 +110,7 @@ export function mountWeekly(el, { kid, arg }) {
       if (editable()) cats.forEach((c) => refresh(c.category));
       body.innerHTML = cats.length
         ? `<div id="wSecs">${cats.map(sectionHtml).join('')}</div><div id="wStatus"></div><div id="wPrint"></div><div id="wOther"></div>`
-        : `<section class="card"><p class="empty">這週沒有資優班的課 🎈</p></section><div id="wOther"></div>`;
+        : `<section class="card"><p class="empty">這週沒有要寫小記的課 🎈</p></section><div id="wOther"></div>`;
     } else if (!editable()) {
       // 只能看：文字可能更新了，整個重畫
       const secs = body.querySelector('#wSecs');

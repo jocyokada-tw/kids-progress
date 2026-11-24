@@ -12,16 +12,9 @@ export const MOOD_EMOJI = { interesting: '🤩', fun: '😆', happy: '😊', oka
 
 /** 預設設定（媽媽可在設定中修改） */
 export const JOURNAL_DEFAULTS = {
-  kids: ['kidA'],
-  schedule: {
-    kidA: [
-      { weekday: 2, category: 'math_science', count: 1 },
-      { weekday: 2, category: 'project', count: 1 },
-      { weekday: 4, category: 'project', count: 1 },
-      { weekday: 4, category: 'humanities', count: 2 },
-      { weekday: 5, category: 'math_science', count: 1 }
-    ]
-  },
+  // 預設不開：媽媽在設定裡勾選孩子、填課表後才會出現
+  kids: [],
+  schedule: {},
   points: { basic: 1, advanced: 2, full: 3 },
   lateDeduct: 0,          // 補寫時少給幾點（預設 0：和當天相同）
   weeklyPoints: 3,        // 週末整理（第二階段）
@@ -39,7 +32,8 @@ export function journalSettings(settings) {
   };
 }
 
-export const usesJournal = (cfg, kidId) => (cfg.kids || []).includes(kidId);
+import { feature } from '../features.js';
+export const usesJournal = (cfg, kidId) => feature('journal') && (cfg.kids || []).includes(kidId);
 
 /** 某個孩子某一天的課：[{ category, count }]（同類別合併，依類別順序） */
 export function classesOn(cfg, kidId, date) {

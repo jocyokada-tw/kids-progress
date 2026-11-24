@@ -2,7 +2,7 @@ import { configured, auth, signInAnonymously, onAuthStateChanged } from './fireb
 import { state, setState, onState, allowedProfiles, isMom, KIDS } from './state.js';
 import { parseRoute, go } from './router.js';
 import { watchMyDevice } from './store/devices.js';
-import { watchMembers, watchSettings } from './store/family.js';
+import { watchMembers, watchSettings, migrateDefaults } from './store/family.js';
 import { watchCareSettings } from './store/care.js';
 import { mountCare } from './views/care.js';
 import { showError, esc } from './ui.js';
@@ -19,15 +19,24 @@ import { mountWords } from './views/words.js';
 import { mountJournal } from './views/journal.js';
 import { mountWeekly } from './views/weekly.js';
 import { initNet, showUpdateBar } from './net.js';
+import { feature } from './features.js';
 import { refreshPushToken } from './push.js';
 
 const appEl = document.getElementById('app');
-const VIEWS = { home: mountHome, checklist: mountChecklist, schedule: mountSchedule, messages: mountMessages, words: mountWords, journal: mountJournal, weekly: mountWeekly, care: mountCare, points: mountPoints, settings: mountSettings };
+// 關掉的功能（config.js 的 FEATURES）沒有路由，網址也進不去
+const VIEWS = {
+  home: mountHome, checklist: mountChecklist, schedule: mountSchedule, points: mountPoints, settings: mountSettings,
+  ...(feature('messages') ? { messages: mountMessages } : {}),
+  ...(feature('words') ? { words: mountWords } : {}),
+  ...(feature('journal') ? { journal: mountJournal, weekly: mountWeekly } : {}),
+  ...(feature('care') ? { care: mountCare } : {})
+};
 
 let page = { key: null, cleanup: null };      // 全頁畫面（配對、選身分）或 shell
 let shell = null;                             // { key, viewEl, setRoute, refresh, cleanup }
 let view = { key: null, cleanup: null };
 let familyUnsubs = [];
+let migrated = false;
 let autoEntered = false;
 
 /** 選擇身分後進入 */
@@ -42,7 +51,11 @@ function startFamilyWatchers(dev) {
   stopFamilyWatchers();
   familyUnsubs = [
     watchMembers((members) => setState({ members, membersReady: true }), (e) => { showError(e, '讀取成員'); setState({ membersReady: true }); }),
-    watchSettings((s) => setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s }, settingsReady: true }), (e) => { showError(e, '讀取設定'); setState({ settingsReady: true }); })
+    watchSettings((s) => {
+      setState({ settings: { bonusAllDone: 0, defaultTaskPoints: 1, ...s }, settingsReady: true });
+      // 媽媽裝置：舊家庭第一次打開新版時，把舊的預設值寫進設定（只做一次）
+      if (dev && dev.isMom && !migrated) { migrated = true; migrateDefaults(s).catch((e) => { migrated = false; console.warn('migrate', e); }); }
+    }, (e) => { showError(e, '讀取設定'); setState({ settingsReady: true }); })
   ];
   // 照顧紀錄的設定只有媽媽裝置讀得到（private/care）
   if (dev && dev.isMom) familyUnsubs.push(watchCareSettings((c) => setState({ care: c }), () => setState({ care: null })));

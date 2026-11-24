@@ -10,6 +10,7 @@ import { mountChecklistPanel } from './checklist-panel.js';
 import { mountEventCalendar } from './calendar.js';
 import { watchWordLists, watchSession } from '../store/words.js';
 import { goalHtml } from './goal.js';
+import { feature } from '../features.js';
 import { watchPendingRedemptions } from '../store/rewards.js';
 import { mountPushCard, shouldPromptPush } from './push-card.js';
 import { journalSettings, usesJournal, writableDates, isClassDay, catsOn, needsWriting } from '../utils/journal.js';
@@ -83,7 +84,7 @@ export function mountHome(el, { kid }) {
   const unsubs = [
     watchLedger(kid, ({ balance }) => {
       $('#balance').textContent = balance;
-      const g = goalHtml(goal, balance);
+      const g = feature('rewards') ? goalHtml(goal, balance) : '';
       $('#goal').hidden = !g;
       $('#goal').innerHTML = g;
     }, (e) => showError(e, '讀取點數')),
@@ -92,7 +93,7 @@ export function mountHome(el, { kid }) {
   unsubs.push(watchUnscheduled(kid, (l) => { unscheduled = l; drawPending(); }, (e) => showError(e)));
   if (isMom()) {
     unsubs.push(watchPendingTasks(kid, (l) => { pendingTasks = l; drawPending(); }, (e) => showError(e)));
-    unsubs.push(watchPendingRedemptions(kid, (l) => { pendingRedeem = l; drawPending(); }, (e) => showError(e)));
+    if (feature('rewards')) unsubs.push(watchPendingRedemptions(kid, (l) => { pendingRedeem = l; drawPending(); }, (e) => showError(e)));
   }
 
   el.addEventListener('click', (e) => {
@@ -128,7 +129,7 @@ export function mountHome(el, { kid }) {
       <div class="grow"><strong>每日單字</strong><br><span class="muted small">${status}</span></div>
       <button class="btn ${s && s.finished ? 'btn-ghost' : 'btn-primary'}" data-go="/k/${kid}/words">${isMom() ? '查看' : s && s.finished ? '看單字' : s ? '繼續 ▶' : '開始 ▶'}</button></div>`;
   };
-  unsubs.push(watchWordLists((l) => { hasWords = l.some((x) => (x.kids || []).includes(kid) && x.count > 0); drawWords(); }, (e) => showError(e, '讀取字庫')));
+  if (feature('words')) unsubs.push(watchWordLists((l) => { hasWords = l.some((x) => (x.kids || []).includes(kid) && x.count > 0); drawWords(); }, (e) => showError(e, '讀取字庫')));
   unsubs.push(watchSession(kid, today, (s) => { wordSession = s; drawWords(); }, (e) => showError(e, '讀取單字')));
 
   // 課後小記入口：上課日、或本週還有沒寫的上課日才出現。不催促，只是溫和提醒

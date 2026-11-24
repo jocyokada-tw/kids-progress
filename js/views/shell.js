@@ -7,14 +7,16 @@ import { watchPendingRedemptions } from '../store/rewards.js';
 import { watchThread, watchMessages, unreadCount } from '../store/messages.js';
 import { todayStr } from '../utils/date.js';
 import { careSettings, usesCare } from '../utils/care.js';
+import { feature } from '../features.js';
 
-const TABS = [
+const ALL_TABS = [
   { name: 'home', icon: '🏠', label: '首頁' },
   { name: 'checklist', icon: '✅', label: '清單' },
   { name: 'schedule', icon: '📅', label: '排程' },
   { name: 'messages', icon: '💬', label: '留言' },
   { name: 'points', icon: '⭐', label: '點數' }
 ];
+const TABS = ALL_TABS.filter((t) => t.name !== 'messages' || feature('messages'));
 
 export function mountShell(root) {
   root.innerHTML = `
@@ -37,8 +39,8 @@ export function mountShell(root) {
   for (const k of (isMom() ? KIDS : [state.profile])) {
     let thread = {}, msgs = [];
     const upd = () => { badges[k].unread = unreadCount(msgs, thread, me); draw(); };
-    unsubs.push(watchThread(k, (t) => { thread = t; upd(); }, (e) => showError(e, '讀取留言')));
-    unsubs.push(watchMessages(k, (m) => { msgs = m; upd(); }, (e) => showError(e, '讀取留言'), 50));
+    if (feature('messages')) unsubs.push(watchThread(k, (t) => { thread = t; upd(); }, (e) => showError(e, '讀取留言')));
+    if (feature('messages')) unsubs.push(watchMessages(k, (m) => { msgs = m; upd(); }, (e) => showError(e, '讀取留言'), 50));
     if (!isMom()) {
       // 小孩：本週還沒排日期的進度
       unsubs.push(watchUnscheduled(k, (l) => {
@@ -50,7 +52,7 @@ export function mountShell(root) {
     if (isMom()) {
       unsubs.push(watchPendingTasks(k, (l) => { badges[k].tasks = l.length; draw(); }, (e) => showError(e, '讀取待確認')));
       unsubs.push(watchPendingItems(k, (l) => { badges[k].items = l.length; draw(); }, (e) => showError(e, '讀取待核可')));
-      unsubs.push(watchPendingRedemptions(k, (l) => { badges[k].redeem = l.length; draw(); }, (e) => showError(e, '讀取兌換申請')));
+      if (feature('rewards')) unsubs.push(watchPendingRedemptions(k, (l) => { badges[k].redeem = l.length; draw(); }, (e) => showError(e, '讀取兌換申請')));
     }
   }
 

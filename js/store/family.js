@@ -1,4 +1,4 @@
-import { db, getDoc, onSnapshot, writeBatch, setDoc, serverTimestamp } from '../firebase.js';
+import { db, getDoc, getDocs, query, limit, onSnapshot, writeBatch, setDoc, serverTimestamp } from '../firebase.js';
 import { familyRef, fcol, fdoc } from './paths.js';
 import { hashPin } from '../utils/crypto.js';
 
@@ -17,7 +17,7 @@ export async function setupFamily({ uid, pin, kidAName, kidBName }) {
   b.set(fdoc('members', 'mom'), { role: 'mom', name: '媽媽', emoji: '👩', color: 'rose' });
   b.set(fdoc('members', 'kidA'), { role: 'kid', name: kidAName, emoji: '🦊', color: 'orange' });
   b.set(fdoc('members', 'kidB'), { role: 'kid', name: kidBName, emoji: '🐳', color: 'blue' });
-  b.set(fdoc('meta', 'settings'), { bonusAllDone: 5, defaultTaskPoints: 2 });
+  b.set(fdoc('meta', 'settings'), { bonusAllDone: 5, defaultTaskPoints: 2, defaultsVersion: DEFAULTS_VERSION });
   b.set(fdoc('private', 'pin'), { hash, salt, updatedAt: serverTimestamp() });
   await b.commit();
   localStorage.setItem(MOM_KEY, hash);
@@ -34,6 +34,37 @@ export const saveMember = (id, data) => setDoc(fdoc('members', id), data, { merg
 
 /** 媽媽設定小孩的目標：{ title, emoji, points, rewardId }，傳 null 代表清除 */
 export const saveGoal = (kidId, goal) => setDoc(fdoc('members', kidId), { goal: goal || null }, { merge: true });
+
+// ---- 預設值版本 ----
+// 第 2 版起，課後小記預設不開、預設科目不含特定家庭的才藝課。
+// 之前就在使用的家庭，如果沒有存過這些設定，原本是靠舊的預設值運作；第一次打開新版時把舊的預設值寫進設定，原本的使用方式不變。
+export const DEFAULTS_VERSION = 2;
+const LEGACY = {
+  journal: {
+    kids: ['kidA'],
+    schedule: { kidA: [
+      { weekday: 2, category: 'math_science', count: 1 }, { weekday: 2, category: 'project', count: 1 },
+      { weekday: 4, category: 'project', count: 1 }, { weekday: 4, category: 'humanities', count: 2 },
+      { weekday: 5, category: 'math_science', count: 1 }
+    ] }
+  },
+  subjects: [
+    { id: 'chinese', name: '國語', color: '#3d7be0' }, { id: 'math', name: '數學', color: '#e5484d' },
+    { id: 'social', name: '社會', color: '#b08060' }, { id: 'science', name: '自然', color: '#2f9e44' },
+    { id: 'english', name: '英文', color: '#ff9f80' }, { id: 'jusmile', name: '朱宗慶', color: '#a3d65c' }
+  ]
+};
+/** 媽媽裝置載入設定後呼叫一次。回傳寫入的內容（沒有要做的事回傳 null） */
+export async function migrateDefaults(settings) {
+  if ((settings.defaultsVersion || 0) >= DEFAULTS_VERSION) return null;
+  // 已經用過的家庭（有清單項目）才需要保留舊的預設值；新建的家庭直接用新的預設值
+  const used = !(await getDocs(query(fcol('items'), limit(1)))).empty;
+  const patch = { defaultsVersion: DEFAULTS_VERSION };
+  if (used && !settings.journal) patch.journal = LEGACY.journal;
+  if (used && !Array.isArray(settings.subjects)) patch.subjects = LEGACY.subjects;
+  await setDoc(fdoc('meta', 'settings'), patch, { merge: true });
+  return patch;
+}
 
 export function watchSettings(cb, onErr) {
   return onSnapshot(fdoc('meta', 'settings'), (s) => cb(s.exists() ? s.data() : {}), onErr);
