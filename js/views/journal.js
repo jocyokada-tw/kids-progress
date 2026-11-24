@@ -77,7 +77,7 @@ export function mountJournal(el, { kid, arg }) {
     if (!mom && date && !editing && !noteOf(date) && canWrite(cfg, kid, date, today)) startEdit(date);
     body.innerHTML = `
       ${weekStrip()}
-      ${mom ? momView() : date ? (editing ? form() : summary(noteOf(date), true)) : `<section class="card"><p class="empty">這週還沒有資優班的課 🎈</p></section>`}
+      ${mom ? momView() : date ? (editing ? form() : summary(noteOf(date), true)) : `<section class="card"><p class="empty">這週還沒有要寫小記的課 🎈</p></section>`}
       ${mom ? '' : history()}`;
   }
 
@@ -249,7 +249,7 @@ export function mountJournal(el, { kid, arg }) {
   function momView() {
     const thisWeek = dates.map((d) => summary(noteOf(d), false, d)).reverse().join('');
     const old = (notes || []).filter((n) => !dates.includes(n.date));
-    return `${momSummary()}${thisWeek || '<section class="card"><p class="empty">這週還沒有資優班的課</p></section>'}
+    return `${momSummary()}${thisWeek || '<section class="card"><p class="empty">這週還沒有要寫小記的課</p></section>'}
       ${old.length ? `<h2 class="section-title">以前的小記</h2>${old.slice(0, 30).map((n) => summary(n, false)).join('')}` : ''}`;
   }
 

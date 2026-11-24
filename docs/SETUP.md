@@ -29,6 +29,8 @@ export const firebaseConfig = {
 export const FAMILY_ID = "home";
 ```
 
+`config.js` 最下面還有 `FEATURES`（功能開關），不需要的功能改成 `false`，說明見 [`docs/SHARE.md`](SHARE.md)。
+
 > 這些值公開在網頁上是正常的，Firebase 本來就是這樣設計。資料的保護靠下一步的安全規則。
 
 ## 3. 部署安全規則與索引（一定要做）

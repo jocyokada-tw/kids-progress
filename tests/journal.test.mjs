@@ -4,10 +4,22 @@ import assert from 'node:assert/strict';
 import { JOURNAL_DEFAULTS as D, journalSettings, classesOn, isClassDay, isLightDay, writableDates, canWrite, levelOf, pointsFor, feelingInText, noteClasses, classLevels, notePoints, dayProgress, catsOn, needsWriting } from '../js/utils/journal.js';
 import { levelOf as srvLevel, pointsFor as srvPoints, classDay as srvClassDay, classLevels as srvClassLevels, notePoints as srvNotePoints, catsOn as srvCatsOn } from '../functions/journal-logic.js';
 
-const cfg = journalSettings({});
+// 測試用的課表（預設不開，所以這裡明確設定）：週二 數理1＋專題1、週四 專題1＋人文2、週五 數理1
+const JOURNAL_FIXTURE = { kids: ['kidA'], schedule: { kidA: [
+  { weekday: 2, category: 'math_science', count: 1 }, { weekday: 2, category: 'project', count: 1 },
+  { weekday: 4, category: 'project', count: 1 }, { weekday: 4, category: 'humanities', count: 2 },
+  { weekday: 5, category: 'math_science', count: 1 }] } };
+const cfg = journalSettings({ journal: JOURNAL_FIXTURE });
 // 2026-11-10 週二、11-11 週三、11-12 週四、11-13 週五
 
-test('預設課表：週二、四、五是上課日，其他不是；只有指定的孩子', () => {
+test('預設不開：沒有孩子、沒有課表', () => {
+  const d = journalSettings({});
+  assert.deepEqual(d.kids, []);
+  assert.deepEqual(d.schedule, {});
+  assert.equal(isClassDay(d, 'kidA', '2026-11-10'), false);
+});
+
+test('設定的課表：週二、四、五是上課日，其他不是；只有指定的孩子', () => {
   assert.deepEqual(classesOn(cfg, 'kidA', '2026-11-10'), [{ category: 'math_science', count: 1 }, { category: 'project', count: 1 }]);
   assert.deepEqual(classesOn(cfg, 'kidA', '2026-11-12'), [{ category: 'humanities', count: 2 }, { category: 'project', count: 1 }]);
   assert.deepEqual(classesOn(cfg, 'kidA', '2026-11-13'), [{ category: 'math_science', count: 1 }]);
@@ -39,7 +51,7 @@ test('層級只看有沒有填', () => {
 test('點數：預設 1／2／3，補寫預設相同、可設定少給，不會變負數', () => {
   assert.deepEqual(['basic', 'advanced', 'full', null].map((l) => pointsFor(l, true, cfg)), [1, 2, 3, 0]);
   assert.deepEqual(['basic', 'full'].map((l) => pointsFor(l, false, cfg)), [1, 3]);
-  const late = journalSettings({ journal: { lateDeduct: 1 } });
+  const late = journalSettings({ journal: { ...JOURNAL_FIXTURE, lateDeduct: 1 } });
   assert.deepEqual(['basic', 'advanced', 'full'].map((l) => pointsFor(l, false, late)), [0, 1, 2]);
 });
 
@@ -53,7 +65,7 @@ test('文字裡的感受詞', () => {
 test('伺服器和網頁的規則一致', () => {
   const notes = [{}, { mood: 'fun', learned: 'a' }, { mood: 'x', learned: 'a', interesting: 'b' }, { mood: 'x', learned: 'a', interesting: 'b', question: 'c' }, { mood: 'x', learned: 'a', interesting: 'b', question: 'c', skipped: true }];
   for (const n of notes) assert.equal(srvLevel(n), levelOf(n));
-  for (const s of [{}, { journal: { lateDeduct: 2, points: { basic: 2, advanced: 3, full: 5 } } }]) {
+  for (const s of [{ journal: JOURNAL_FIXTURE }, { journal: { ...JOURNAL_FIXTURE, lateDeduct: 2, points: { basic: 2, advanced: 3, full: 5 } } }]) {
     const c = journalSettings(s);
     for (const l of ['basic', 'advanced', 'full', null]) for (const on of [true, false]) assert.equal(srvPoints(l, on, c), pointsFor(l, on, c));
   }
@@ -81,7 +93,7 @@ test('兩類課各自紀錄、各自算點數；舊格式照樣讀得到', () =>
   assert.deepEqual(noteClasses(old, thu), { humanities: { mood: 'fun', learned: 'a', question: 'q' }, project: { learned: '一句話', short: true } });
   assert.equal(notePoints(old, thu, true, cfg), 2);
   // 伺服器規則一致
-  const late = journalSettings({ journal: { lateDeduct: 1 } });
+  const late = journalSettings({ journal: { ...JOURNAL_FIXTURE, lateDeduct: 1 } });
   for (const n of [note, half, old, { skipped: true, ...note }]) {
     assert.deepEqual(srvClassLevels(n, thu), classLevels(n, thu));
     assert.equal(srvNotePoints(n, thu, false, late), notePoints(n, thu, false, late));

@@ -2,10 +2,7 @@
 // 這是媽媽自己要收的提醒，所以不受勿擾時段限制（晚上 22:00 剛好是勿擾時段開始）。
 import { db, deliver, kidName } from './core.js';
 
-export const CARE_DEFAULTS = { kids: ['kidA'], morningTime: '07:30', eveningTime: '22:00', meds: [
-  { id: 'concerta', name: '利長能', dose: '早上一顆', when: 'morning', sideEffects: ['胃口不佳', '情緒低落', '不易入睡'] },
-  { id: 'avamys', name: '艾敏釋鼻用噴液懸浮劑', dose: '睡前兩個鼻孔各噴 2 下', when: 'bedtime', sideEffects: [] }
-] };
+export const CARE_DEFAULTS = { kids: ['kidA'], morningTime: '07:30', eveningTime: '22:00', meds: [] };
 export function careSettings(c) {
   const x = c || {};
   return { ...CARE_DEFAULTS, ...x, kids: Array.isArray(x.kids) ? x.kids : CARE_DEFAULTS.kids, meds: Array.isArray(x.meds) ? x.meds : CARE_DEFAULTS.meds };

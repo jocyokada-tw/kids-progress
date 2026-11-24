@@ -10,7 +10,7 @@
 | `devices/{uid}` | **已配對的裝置**（權限的依據） | `isMom`, `kids: ['kidA', …]`, `label`, `pairedAt` |
 | `pairRequests/{uid}` | 等待媽媽核可的裝置 | `code`（4 位數）, `label`, `createdAt` |
 | `members/{mom\|kidA\|kidB}` | 使用者（媽媽與小孩） | `role`, `name`, `emoji`, `color`, `goal: {title, emoji, points, rewardId}`（目標，只有媽媽能設定） |
-| `meta/settings` | 點數規則、科目、通知 | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]`, `notify: {mom:{…}, kid:{…}, quietStart, quietEnd, dailyTime}` |
+| `meta/settings` | 點數規則、科目、通知（`defaultsVersion`：預設值版本，舊家庭第一次打開第 2 版時會把舊的預設值寫進來） | `bonusAllDone`（全部完成獎勵）, `defaultTaskPoints`, `subjects: [{id, name, color}]`, `notify: {mom:{…}, kid:{…}, quietStart, quietEnd, dailyTime}` |
 | `private/pin` | 媽媽 PIN（PBKDF2 雜湊＋鹽） | `hash`, `salt`, `updatedAt` |
 | `tasks/{id}` | 進度（任務） | `kidId`, `date`（本週進度未排時為空字串）, `kind: weekly`（本週進度才有）, `week`／`weekEnd`（該週週一／週日）, `itemApproved`, `title`, `note`, `subject`, `points`, `createdBy: mom\|kid`, `status: pending\|approved\|rejected`, `momNote`（媽媽的建議） |
 | `routines/{id}` | 每日固定事項 | `kidId`, `title`, `points`, `weekdays: [0-6]`, `active`, `order` |
@@ -29,7 +29,7 @@
 | `wordSessions/{kidId}_{日期}` | 當天的單字練習 | `kidId`, `date`, `newWords[]`, `reviewWords[]`, `wrong[]`, `finished`, `perfect`, `practice`（完成後額外練習的次數）, `practiceLog: [{mode: wrong\|all, words, misses, at}]` |
 | `tts/{雜湊}` | 雲端語音快取（伺服器寫入，裝置只能讀單筆） | `text`, `audio`（base64 MP3）, `createdAt` |
 | `meta/ttsUsage` | 雲端語音每日用量（伺服器專用） | `date`, `chars` |
-| `classNotes/{kidId}_{日期}` | 課後小記（資優班上課日） | 孩子寫：`skipped`（今天休息）, `classes: { humanities\|math_science\|project: { mood, moodDetail, followUpAnswer, boringReason, boringAnswer, learned, interesting, question, projectProgress } }`（每一類課各自紀錄；舊資料的 `memorable`＋最外層欄位＋`extraCategory`／`extraText` 讀取時會轉成這個格式）；伺服器寫：`levels: { 類別: basic\|advanced\|full\|null }`, `level`（最高的一堂）, `awarded`（已入帳點數，每一類課分開算再加總）, `onTheDay`；媽媽寫：`momComment`, `momCommentAt` |
+| `classNotes/{kidId}_{日期}` | 課後小記（設定的上課日） | 孩子寫：`skipped`（今天休息）, `classes: { humanities\|math_science\|project: { mood, moodDetail, followUpAnswer, boringReason, boringAnswer, learned, interesting, question, projectProgress } }`（每一類課各自紀錄；舊資料的 `memorable`＋最外層欄位＋`extraCategory`／`extraText` 讀取時會轉成這個格式）；伺服器寫：`levels: { 類別: basic\|advanced\|full\|null }`, `level`（最高的一堂）, `awarded`（已入帳點數，每一類課分開算再加總）, `onTheDay`；媽媽寫：`momComment`, `momCommentAt` |
 | `weeklyJournals/{kidId}_{週一}` | 週末記事錄整理 | 孩子寫：`sections: { 類別: { text } }`, `status: draft\|done`, `submittedAt`；伺服器寫：`awarded`（週六、週日送出且有內容才入帳一次） |
 | `customStarters/{kidId}` | 孩子自訂的開頭句 | `list: [{ id, category, text }]` |
 | `meta/journalPrompts` | 課後小記的提示文字（可省略，沒有就用 `data/journalPrompts.json`） | 和 `data/journalPrompts.json` 相同格式 |

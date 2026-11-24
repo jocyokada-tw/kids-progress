@@ -11,8 +11,7 @@ export const DEFAULT_SUBJECTS = [
   { id: 'math', name: '數學', color: '#e5484d' },
   { id: 'social', name: '社會', color: '#b08060' },
   { id: 'science', name: '自然', color: '#2f9e44' },
-  { id: 'english', name: '英文', color: '#ff9f80' },
-  { id: 'jusmile', name: '朱宗慶', color: '#a3d65c' }
+  { id: 'english', name: '英文', color: '#ff9f80' }
 ];
 // 通知預設值（和 functions/core.js 的 DEFAULT_NOTIFY 相同）
 export const DEFAULT_NOTIFY = {

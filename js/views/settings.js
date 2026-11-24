@@ -14,6 +14,7 @@ import { todayStr, addDays, labelMD, weekday } from '../utils/date.js';
 import { journalSettings, CATEGORIES, MOOD_EMOJI } from '../utils/journal.js';
 import { semesterRange, notesCsv, weekliesCsv } from '../utils/weekly.js';
 import { careSettings, WHEN_LABEL } from '../utils/care.js';
+import { feature } from '../features.js';
 import { saveCareSettings } from '../store/care.js';
 import { loadPrompts, savePrompts, resetPrompts, getNotesOnce, getWeekliesOnce } from '../store/journal.js';
 
@@ -38,15 +39,15 @@ export function mountSettings(el) {
     <section class="card"><h2>📋 每日固定事項</h2>
       <p class="muted small">這些事項會依星期自動出現在每日清單，例如「刷牙」「閱讀 20 分鐘」。</p>
       <div id="sRoutines"></div></section>
-    <section class="card"><h2>📖 每日單字</h2>
+    <section class="card" ${feature('words') ? '' : 'hidden'}><h2>📖 每日單字</h2>
       <p class="muted small">每天學幾個新單字，並依遺忘曲線自動安排複習（答對後隔 1、2、4、7、15、30、60 天再考）。補習班單字會優先學，考前一天和當天整份複習。</p>
       <div id="sWordLists"></div><hr><div id="sWordCfg"></div></section>
-    <section class="card"><h2>📝 課後小記</h2><div id="sJournal"></div></section>
-    <section class="card"><h2>🩺 照顧紀錄</h2><div id="sCare"></div></section>
-    <section class="card"><h2>🎁 兌換項目</h2>
+    <section class="card" ${feature('journal') ? '' : 'hidden'}><h2>📝 課後小記</h2><div id="sJournal"></div></section>
+    <section class="card" ${feature('care') ? '' : 'hidden'}><h2>🩺 照顧紀錄</h2><div id="sCare"></div></section>
+    <section class="card" ${feature('rewards') ? '' : 'hidden'}><h2>🎁 兌換項目</h2>
       <p class="muted small">孩子申請兌換時會先預留點數，媽媽核可後才正式扣點。</p>
       <div id="sRewards"></div></section>
-    <section class="card"><h2>🎯 孩子的目標</h2>
+    <section class="card" ${feature('rewards') ? '' : 'hidden'}><h2>🎯 孩子的目標</h2>
       <p class="muted small">和孩子討論好後在這裡設定，孩子的首頁會顯示還差多少點。</p>
       <div id="sGoals"></div></section>
     <section class="card"><h2>🎨 科目與顏色</h2>

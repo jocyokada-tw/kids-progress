@@ -1,15 +1,8 @@
 // 課後小記的層級與點數規則（伺服器端）。和網頁端 js/utils/journal.js 相同，兩邊要一起改；tests/journal.test.mjs 會比對。
 export const JOURNAL_DEFAULTS = {
-  kids: ['kidA'],
-  schedule: {
-    kidA: [
-      { weekday: 2, category: 'math_science', count: 1 },
-      { weekday: 2, category: 'project', count: 1 },
-      { weekday: 4, category: 'project', count: 1 },
-      { weekday: 4, category: 'humanities', count: 2 },
-      { weekday: 5, category: 'math_science', count: 1 }
-    ]
-  },
+  // 預設不開：媽媽在設定裡勾選孩子、填課表後才會出現
+  kids: [],
+  schedule: {},
   points: { basic: 1, advanced: 2, full: 3 },
   lateDeduct: 0,
   weeklyPoints: 3,

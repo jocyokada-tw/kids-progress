@@ -6,10 +6,8 @@ export const CARE_DEFAULTS = {
   kids: ['kidA'],
   morningTime: '07:30',
   eveningTime: '22:00',
-  meds: [
-    { id: 'concerta', name: '利長能', dose: '早上一顆', when: 'morning', sideEffects: ['胃口不佳', '情緒低落', '不易入睡'] },
-    { id: 'avamys', name: '艾敏釋鼻用噴液懸浮劑', dose: '睡前兩個鼻孔各噴 2 下', when: 'bedtime', sideEffects: [] }
-  ]
+  // 預設沒有藥物：在設定裡新增（藥名、用法、早上／睡前、要觀察的副作用）
+  meds: []
 };
 export const WHEN_LABEL = { morning: '早上', bedtime: '睡前' };
 export const SCORE_LABEL = { 1: '很差', 2: '不太好', 3: '普通', 4: '不錯', 5: '很好' };
@@ -19,7 +17,8 @@ export function careSettings(c) {
   const x = c || {};
   return { ...CARE_DEFAULTS, ...x, kids: Array.isArray(x.kids) ? x.kids : CARE_DEFAULTS.kids, meds: Array.isArray(x.meds) ? x.meds : CARE_DEFAULTS.meds };
 }
-export const usesCare = (cfg, kidId) => (cfg.kids || []).includes(kidId);
+import { feature } from '../features.js';
+export const usesCare = (cfg, kidId) => feature('care') && (cfg.kids || []).includes(kidId);
 export const medsAt = (cfg, when) => (cfg.meds || []).filter((m) => m.when === when);
 /** 所有藥物列出的副作用（不重複，照順序） */
 export const watchItems = (cfg) => [...new Set((cfg.meds || []).flatMap((m) => m.sideEffects || []))];

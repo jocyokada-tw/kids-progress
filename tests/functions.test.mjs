@@ -16,12 +16,17 @@ const logs = async () => (await db.collection(`${F}/_pushLog`).get()).docs.map((
 const queue = async () => (await db.collection(`${F}/pushQueue`).get()).docs.map((d) => d.data());
 const NO_QUIET = { quietStart: '00:00', quietEnd: '00:00' };
 
+// 課後小記預設不開：測試用的課表（週二 數理＋專題、週四 專題＋人文、週五 數理）
+const JOURNAL_FIXTURE = { kids: ['kidA'], schedule: { kidA: [
+  { weekday: 2, category: 'math_science', count: 1 }, { weekday: 2, category: 'project', count: 1 },
+  { weekday: 4, category: 'project', count: 1 }, { weekday: 4, category: 'humanities', count: 2 },
+  { weekday: 5, category: 'math_science', count: 1 }] } };
 async function reset(notify = NO_QUIET) {
   await fetch('http://127.0.0.1:8080/emulator/v1/projects/demo-kids/databases/(default)/documents', { method: 'DELETE' });
   await db.doc(F).set({ setupBy: 'mom' });
   await db.doc(`${F}/members/kidA`).set({ name: '小明' });
   await db.doc(`${F}/members/kidB`).set({ name: '小美' });
-  await db.doc(`${F}/meta/settings`).set({ notify });
+  await db.doc(`${F}/meta/settings`).set({ notify, journal: JOURNAL_FIXTURE });
 }
 beforeEach(() => reset());
 
@@ -383,7 +388,7 @@ test('課後小記：依填寫自動入帳、升級補差額、不扣點、重�
 });
 
 test('課後小記：補寫（同一週）、非上課日、上週、沒開啟的孩子都不給點；可設定補寫少給', async () => {
-  await db.doc(`${F}/meta/settings`).set({ notify: NO_QUIET, journal: { lateDeduct: 1 } });
+  await db.doc(`${F}/meta/settings`).set({ notify: NO_QUIET, journal: { ...JOURNAL_FIXTURE, lateDeduct: 1 } });
   const full = { mood: 'okay', learned: 'a', interesting: 'b', question: 'c' };
   let n = await writeNote('kidA_2026-11-10', { kidId: 'kidA', date: '2026-11-10', ...full }, at('2026-11-15'));   // 週日補週二
   assert.equal(n.onTheDay, false); assert.equal(n.awarded, 2);
@@ -465,7 +470,8 @@ test('照顧紀錄提醒：還沒開啟不提醒；到時間還沒記才提醒�
   await reset({ quietStart: '22:00', quietEnd: '07:00' });
   let s = await loadSettings('home');
   assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:30')), []);       // 還沒開啟
-  await db.doc(`${F}/private/care`).set({ kids: ['kidA'] });
+  await db.doc(`${F}/private/care`).set({ kids: ['kidA'], meds: [
+    { id: 'concerta', name: '利長能', when: 'morning', sideEffects: [] }, { id: 'avamys', name: '艾敏釋', when: 'bedtime', sideEffects: [] }] });
   assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:00')), []);       // 還沒到 07:30
   assert.deepEqual(await careReminder('home', s, at('2026-11-19', '07:30')), [{ kidId: 'kidA', part: 'morning' }]);
   assert.deepEqual(await careReminder('home', s, at('2026-11-19', '16:00')), []);       // 早上只提醒一次

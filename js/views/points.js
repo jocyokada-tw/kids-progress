@@ -6,6 +6,7 @@ import { watchPendingItems } from '../store/checklist.js';
 import { watchRewards, watchRedemptions, requestRedemption, cancelRedemption, approveRedemption, rejectRedemption } from '../store/rewards.js';
 import { labelMD, labelTime } from '../utils/date.js';
 import { goalHtml } from './goal.js';
+import { feature } from '../features.js';
 import { needOnline } from '../net.js';
 
 const STATUS = { pending: '申請中', approved: '已兌換', rejected: '媽媽退回', cancelled: '已取消' };
@@ -25,7 +26,9 @@ export function mountPoints(el, { kid }) {
     const available = balance - reserved;
     const pendingPts = pendingItems.reduce((s, i) => s + (i.points || 0), 0);
     const pending = redemptions.filter((r) => r.status === 'pending');
-    const goal = goalHtml(member(kid).goal, balance);
+    const rewardsOn = feature('rewards');
+    if (!rewardsOn) tab = 'ledger';
+    const goal = rewardsOn ? goalHtml(member(kid).goal, balance) : '';
 
     el.innerHTML = `
       <div class="page-head">
@@ -38,7 +41,7 @@ export function mountPoints(el, { kid }) {
       </section>
       ${goal ? `<section class="card">${goal}</section>` : ''}
 
-      ${pending.length ? `<section class="card"><h2>⏳ 兌換申請中</h2>${pending.map((r) => reqRow(r, true)).join('')}</section>` : ''}
+      ${!rewardsOn ? '' : `${pending.length ? `<section class="card"><h2>⏳ 兌換申請中</h2>${pending.map((r) => reqRow(r, true)).join('')}</section>` : ''}
 
       <section class="card">
         <div class="card-head"><h2>🎁 兌換</h2>${mom ? '<button class="btn btn-sm btn-ghost" data-act="manage">管理兌換項目</button>' : ''}</div>
@@ -51,12 +54,12 @@ export function mountPoints(el, { kid }) {
             ${!mom ? `<span class="reward-need">${ok ? '可以兌換！' : `還差 ${rw.cost - available} 點`}</span>` : ''}
           </button>`;
         }).join('')}</div>` : `<p class="empty">${mom ? '還沒有兌換項目，按「管理兌換項目」新增。' : '媽媽還沒有設定兌換項目'}</p>`}
-      </section>
+      </section>`}
 
       <section class="card">
         <div class="seg">
           <button class="${tab === 'ledger' ? 'active' : ''}" data-act="tab" data-tab="ledger">點數紀錄</button>
-          <button class="${tab === 'redeem' ? 'active' : ''}" data-act="tab" data-tab="redeem">兌換紀錄</button>
+          ${rewardsOn ? `<button class="${tab === 'redeem' ? 'active' : ''}" data-act="tab" data-tab="redeem">兌換紀錄</button>` : ''}
         </div>
         ${tab === 'ledger' ? ledgerHtml() : redeemHtml()}
       </section>`;

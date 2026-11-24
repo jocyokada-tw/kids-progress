@@ -6,7 +6,12 @@ import { journalSettings } from '../js/utils/journal.js';
 import { weekClasses, notesFor, needsLowPressure, pickStarters, starterInsert, weekSummary, sensitiveHints, semesterRange, notesCsv, weekliesCsv, isWeekend } from '../js/utils/weekly.js';
 
 const prompts = JSON.parse(readFileSync(new URL('../data/journalPrompts.json', import.meta.url), 'utf8'));
-const cfg = journalSettings({});
+// 測試用的課表（預設不開，所以這裡明確設定）：週二 數理1＋專題1、週四 專題1＋人文2、週五 數理1
+const JOURNAL_FIXTURE = { kids: ['kidA'], schedule: { kidA: [
+  { weekday: 2, category: 'math_science', count: 1 }, { weekday: 2, category: 'project', count: 1 },
+  { weekday: 4, category: 'project', count: 1 }, { weekday: 4, category: 'humanities', count: 2 },
+  { weekday: 5, category: 'math_science', count: 1 }] } };
+const cfg = journalSettings({ journal: JOURNAL_FIXTURE });
 const W = '2026-11-09';   // 週一
 let seed = 1;
 const rng = () => ((seed = (seed * 16807) % 2147483647) / 2147483647);
