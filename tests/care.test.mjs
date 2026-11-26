@@ -59,3 +59,33 @@ test('CSV', () => {
   assert.equal(lines.length, 2);
   assert.equal(lines[1], '2026-11-19,四,有,07:42,,沒有,,忘了,4,開心,3,,有,,,午餐吃一半,22:15,07:00,8.8,');
 });
+
+test('文字摘要：重點統計、有用藥／沒用藥時的特別紀錄、每日紀錄可選', async () => {
+  const { careReport, isNotable } = await import('../js/utils/care.js');
+  const T = { status: 'taken' };
+  const logs = [
+    { date: '2026-11-19', meds: { concerta: T, avamys: T }, mood: { score: 2, note: '下午有點低落' }, learning: { score: 4 }, observed: { list: ['胃口不佳'] }, sleep: { bed: '21:45', wake: '06:50' } },
+    { date: '2026-11-20', meds: { concerta: { status: 'skipped', note: '忘了' }, avamys: T }, mood: { score: 4 }, learning: { score: 2, note: '分心' } },
+    { date: '2026-11-21', meds: { concerta: T }, mood: { score: 3 }, learning: { score: 4 } },          // 沒有特別紀錄
+    { date: '2026-11-22', mood: { score: 3, note: '去公園' } },                                         // 利長能沒記錄
+    { date: '2026-10-01', meds: { concerta: T }, mood: { score: 1, note: '區間外' } }
+  ];
+  assert.deepEqual(logs.map(isNotable), [true, true, false, true, true]);
+  const t = careReport(logs, cfg, { name: '小明', from: '2026-11-19', to: '2026-11-25', groupMed: 'concerta' });
+  assert.match(t, /^小明 照顧紀錄 11\/19–11\/25（7 天，有紀錄 4 天）/);
+  assert.match(t, /💊 利長能（早上）：吃了 2 天，沒吃 1 天（11\/20），沒記錄 4 天/);
+  assert.match(t, /🙂 情緒：平均 3（4 天有分數），最低 2（11\/19）/);
+  assert.match(t, /🔍 利長能：有用藥時 情緒 2\.5、學習 4；沒用藥時 情緒 4、學習 2/);
+  assert.match(t, /⚠️ 觀察到：胃口不佳 1 天/);
+  const sec = (title) => { const i = t.indexOf(`【${title}】`); assert.ok(i >= 0, title); return t.slice(i, t.indexOf('\n\n', i) > 0 ? t.indexOf('\n\n', i) : undefined); };
+  assert.match(sec('有用利長能時的特別紀錄'), /11\/19（四）.*情緒2[\s\S]*情緒：下午有點低落｜觀察：胃口不佳/);
+  assert.doesNotMatch(sec('有用利長能時的特別紀錄'), /11\/21/);
+  assert.match(sec('沒用利長能時的特別紀錄'), /11\/20（五）[\s\S]*學習：分心｜沒吃利長能：忘了/);
+  assert.match(sec('利長能沒記錄的日子的特別紀錄'), /11\/22（日）[\s\S]*去公園/);
+  assert.doesNotMatch(t, /區間外/);
+  assert.doesNotMatch(t, /【每日紀錄】/);
+  const d = careReport(logs, cfg, { from: '2026-11-19', to: '2026-11-25', groupMed: 'concerta', daily: true });
+  assert.match(d, /【每日紀錄】[\s\S]*11\/21（六） 利長能✓ 艾敏釋鼻用噴液懸浮劑– 情緒3 學習4/);
+  // 沒有藥物時也能產生
+  assert.match(careReport(logs, careSettings({}), { from: '2026-11-19', to: '2026-11-25' }), /【特別紀錄】/);
+});

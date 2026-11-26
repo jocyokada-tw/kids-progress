@@ -1,8 +1,8 @@
 import { state, isMom, member } from '../state.js';
-import { esc, toast, showError, modal, saveFile } from '../ui.js';
+import { esc, toast, showError, modal, saveFile, copyText } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, addDays, labelMD, labelRelative, isDateStr } from '../utils/date.js';
-import { careSettings, usesCare, medsAt, watchItems, sleepMinutes, fmtDuration, morningDone, eveningDone, careCsv, SCORE_LABEL, SCORE_EMOJI } from '../utils/care.js';
+import { careSettings, usesCare, medsAt, watchItems, sleepMinutes, fmtDuration, morningDone, eveningDone, careCsv, careReport, SCORE_LABEL, SCORE_EMOJI } from '../utils/care.js';
 import { watchLog, watchLogs, saveLog, daySummary, getLogsOnce } from '../store/care.js';
 import { journalSettings, catsOn, classLevels, categoryOf } from '../utils/journal.js';
 
@@ -142,7 +142,7 @@ export function mountCare(el, { kid, arg }) {
     const meds = cfg.meds || [];
     const mark = (l, m) => { const st = l && l.meds && l.meds[m.id] && l.meds[m.id].status; return st === 'taken' ? '✓' : st === 'skipped' ? '✗' : '–'; };
     el.querySelector('#cTable').innerHTML = `<section class="card"><div class="card-head"><h2>📋 最近兩週</h2>
-        <button class="btn btn-sm btn-ghost" data-act="export">📤 匯出</button></div>
+        <button class="btn btn-sm btn-ghost" data-act="export">📤 匯出／分享</button></div>
       <div class="ctable-wrap"><table class="ctable">
         <thead><tr><th>日期</th>${meds.map((m) => `<th title="${esc(m.name)}">${esc(m.name.slice(0, 3))}</th>`).join('')}<th>情緒</th><th>學習</th><th>睡眠</th><th>觀察</th></tr></thead>
         <tbody>${days.map((d) => {
@@ -203,17 +203,46 @@ export function mountCare(el, { kid, arg }) {
     } catch (err) { showError(err); }
   });
 
+  // 匯出：文字摘要（傳 LINE 用）或 Excel 檔（CSV）
   async function exportCsv() {
+    const meds = cfg.meds || [];
+    const def = (meds.find((m) => m.when === 'morning') || meds[0] || {}).id || '';
     const r = await modal({
-      title: '📤 匯出照顧紀錄',
-      html: `<div class="field-row"><label class="field"><span>從</span><input type="date" name="from" value="${addDays(today, -29)}"></label>
+      title: '📤 匯出／分享',
+      html: `<div class="field-row"><label class="field"><span>從</span><input type="date" name="from" value="${addDays(today, -13)}"></label>
         <label class="field"><span>到</span><input type="date" name="to" value="${today}"></label></div>
-        <p class="muted small">預設最近 30 天。CSV 可以用 Excel、Numbers、Google 試算表打開，回診時帶給醫生參考。</p>`,
-      buttons: [{ id: 'cancel', label: '取消' }, { id: 'ok', label: '匯出', kind: 'primary' }],
-      validate: (id, d) => (id === 'ok' && !(d.from && d.to && d.from <= d.to) ? '請選擇正確的日期範圍' : null)
+        ${meds.length ? `<label class="field"><span>用哪個藥分「有用藥／沒用藥」</span><select class="select" name="groupMed">${meds.map((m) => `<option value="${esc(m.id)}" ${m.id === def ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
+        <label class="switch-row"><span>附上每日紀錄</span><span class="switch"><input type="checkbox" name="daily"><span></span></span></label>
+        <p class="muted small">「文字摘要」：區間重點統計、有用藥和沒用藥時的特別紀錄（情緒或學習有寫文字、或 2 分以下），可以直接傳到 LINE。<br>「Excel 檔」：所有欄位的表格，給試算表用。</p>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'csv', label: 'Excel 檔' }, { id: 'text', label: '文字摘要', kind: 'primary' }],
+      validate: (id, d) => (id !== 'cancel' && !(d.from && d.to && d.from <= d.to) ? '請選擇正確的日期範圍' : null)
     });
-    if (r.id !== 'ok') return;
-    await saveFile(`${name}_照顧紀錄_${r.data.from}_${r.data.to}.csv`, careCsv(await getLogsOnce(kid), cfg, r.data.from, r.data.to));
+    if (r.id === 'cancel') return;
+    const all = await getLogsOnce(kid);
+    if (r.id === 'csv') return saveFile(`${name}_照顧紀錄_${r.data.from}_${r.data.to}.csv`, careCsv(all, cfg, r.data.from, r.data.to));
+    const text = careReport(all, cfg, { name, from: r.data.from, to: r.data.to, groupMed: r.data.groupMed, daily: r.data.daily === 'on' });
+    await showText(text);
+  }
+
+  /** 預覽文字摘要，按「分享」直接叫出手機的分享選單（LINE 會收到一則文字訊息） */
+  function showText(text) {
+    const long = text.length > 4500;
+    return modal({
+      title: '📝 文字摘要',
+      html: `<textarea class="report-text" readonly rows="16">${esc(text)}</textarea>
+        <p class="muted small">${text.length} 字${long ? '・⚠️ LINE 一則訊息最多約 5,000 字，太長可能被截斷：可以縮短日期區間，或不附每日紀錄。' : ''}</p>
+        <div class="btn-row">
+          <button type="button" class="btn btn-ghost" data-r="copy">📋 複製</button>
+          ${navigator.share ? '<button type="button" class="btn btn-primary" data-r="share">📤 分享（LINE 等）</button>' : ''}
+        </div>`,
+      buttons: [{ id: 'cancel', label: '關閉' }],
+      onOpen: (w) => {
+        w.querySelector('[data-r=copy]').addEventListener('click', async () => toast((await copyText(text)) ? '已複製，可以貼到 LINE' : '無法複製', 'ok'));
+        const sh = w.querySelector('[data-r=share]');
+        // 在點按的當下呼叫分享（iPhone 要求分享必須直接由點按觸發）
+        if (sh) sh.addEventListener('click', () => { navigator.share({ text }).catch((e) => { if (e && e.name !== 'AbortError') toast('無法分享，請改用「複製」', 'error'); }); });
+      }
+    });
   }
 
   const unsubs = [
