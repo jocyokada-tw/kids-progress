@@ -2,7 +2,7 @@ import { state, isMom, member } from '../state.js';
 import { esc, toast, showError, modal, saveFile, copyText } from '../ui.js';
 import { go } from '../router.js';
 import { todayStr, addDays, labelMD, labelRelative, isDateStr } from '../utils/date.js';
-import { careSettings, usesCare, medsAt, watchItems, sleepMinutes, fmtDuration, morningDone, eveningDone, careCsv, careReport, SCORE_LABEL, SCORE_EMOJI } from '../utils/care.js';
+import { careSettings, usesCare, medsAt, watchItems, sleepMinutes, fmtDuration, morningDone, eveningDone, careCsv, careReportData, careReportParts, careReportHtml, SCORE_LABEL, SCORE_EMOJI } from '../utils/care.js';
 import { watchLog, watchLogs, saveLog, daySummary, getLogsOnce } from '../store/care.js';
 import { journalSettings, catsOn, classLevels, categoryOf } from '../utils/journal.js';
 
@@ -203,7 +203,7 @@ export function mountCare(el, { kid, arg }) {
     } catch (err) { showError(err); }
   });
 
-  // 匯出：文字摘要（傳 LINE 用）或 Excel 檔（CSV）
+  // 匯出：文字摘要（傳 LINE 用，太長自動分段）、PDF（用列印產生）、Excel 檔（CSV）
   async function exportCsv() {
     const meds = cfg.meds || [];
     const def = (meds.find((m) => m.when === 'morning') || meds[0] || {}).id || '';
@@ -213,36 +213,69 @@ export function mountCare(el, { kid, arg }) {
         <label class="field"><span>到</span><input type="date" name="to" value="${today}"></label></div>
         ${meds.length ? `<label class="field"><span>用哪個藥分「有用藥／沒用藥」</span><select class="select" name="groupMed">${meds.map((m) => `<option value="${esc(m.id)}" ${m.id === def ? 'selected' : ''}>${esc(m.name)}</option>`).join('')}</select></label>` : ''}
         <label class="switch-row"><span>附上每日紀錄</span><span class="switch"><input type="checkbox" name="daily"><span></span></span></label>
-        <p class="muted small">「文字摘要」：區間重點統計、有用藥和沒用藥時的特別紀錄（情緒或學習有寫文字、或 2 分以下），可以直接傳到 LINE。<br>「Excel 檔」：所有欄位的表格，給試算表用。</p>`,
-      buttons: [{ id: 'cancel', label: '取消' }, { id: 'csv', label: 'Excel 檔' }, { id: 'text', label: '文字摘要', kind: 'primary' }],
+        <p class="muted small">內容：區間重點統計、有用藥和沒用藥時的特別紀錄（情緒或學習有寫文字、或 2 分以下）。<br>
+          「文字」：直接傳到 LINE，太長會自動分成幾則。<br>「PDF」：排好版的報告，用列印存成 PDF，適合回診。<br>「Excel 檔」：所有欄位的表格，給試算表用。</p>`,
+      buttons: [{ id: 'cancel', label: '取消' }, { id: 'csv', label: 'Excel 檔' }, { id: 'pdf', label: 'PDF' }, { id: 'text', label: '文字', kind: 'primary' }],
       validate: (id, d) => (id !== 'cancel' && !(d.from && d.to && d.from <= d.to) ? '請選擇正確的日期範圍' : null)
     });
     if (r.id === 'cancel') return;
     const all = await getLogsOnce(kid);
     if (r.id === 'csv') return saveFile(`${name}_照顧紀錄_${r.data.from}_${r.data.to}.csv`, careCsv(all, cfg, r.data.from, r.data.to));
-    const text = careReport(all, cfg, { name, from: r.data.from, to: r.data.to, groupMed: r.data.groupMed, daily: r.data.daily === 'on' });
-    await showText(text);
+    const data = careReportData(all, cfg, { name, from: r.data.from, to: r.data.to, groupMed: r.data.groupMed, daily: r.data.daily === 'on' });
+    if (r.id === 'pdf') return showPdf(data, `${name}_照顧紀錄_${r.data.from}_${r.data.to}`);
+    await showText(careReportParts(data));
   }
 
-  /** 預覽文字摘要，按「分享」直接叫出手機的分享選單（LINE 會收到一則文字訊息） */
-  function showText(text) {
-    const long = text.length > 4500;
+  /** 預覽文字摘要。太長時分成幾段，每段各自「複製」「分享」（分享會叫出手機的分享選單，LINE 收到的是文字訊息） */
+  function showText(parts) {
+    const many = parts.length > 1;
     return modal({
       title: '📝 文字摘要',
-      html: `<textarea class="report-text" readonly rows="16">${esc(text)}</textarea>
-        <p class="muted small">${text.length} 字${long ? '・⚠️ LINE 一則訊息最多約 5,000 字，太長可能被截斷：可以縮短日期區間，或不附每日紀錄。' : ''}</p>
-        <div class="btn-row">
-          <button type="button" class="btn btn-ghost" data-r="copy">📋 複製</button>
-          ${navigator.share ? '<button type="button" class="btn btn-primary" data-r="share">📤 分享（LINE 等）</button>' : ''}
-        </div>`,
+      html: `${many ? `<p class="muted small">內容比較長，分成 ${parts.length} 則（LINE 一則訊息最多約 5,000 字）。請依序傳送。</p>` : ''}
+        ${parts.map((t, i) => `<div class="report-part">
+          ${many ? `<strong>第 ${i + 1} 則</strong>` : ''}<textarea class="report-text ${many ? 'short' : ''}" readonly rows="${many ? 8 : 16}">${esc(t)}</textarea>
+          <div class="btn-row"><span class="muted small grow">${t.length} 字</span>
+            <button type="button" class="btn btn-ghost" data-r="copy" data-i="${i}">📋 複製${many ? `第 ${i + 1} 則` : ''}</button>
+            ${navigator.share ? `<button type="button" class="btn btn-primary" data-r="share" data-i="${i}">📤 分享${many ? `第 ${i + 1} 則` : ''}</button>` : ''}</div></div>`).join('')}`,
       buttons: [{ id: 'cancel', label: '關閉' }],
       onOpen: (w) => {
-        w.querySelector('[data-r=copy]').addEventListener('click', async () => toast((await copyText(text)) ? '已複製，可以貼到 LINE' : '無法複製', 'ok'));
-        const sh = w.querySelector('[data-r=share]');
-        // 在點按的當下呼叫分享（iPhone 要求分享必須直接由點按觸發）
-        if (sh) sh.addEventListener('click', () => { navigator.share({ text }).catch((e) => { if (e && e.name !== 'AbortError') toast('無法分享，請改用「複製」', 'error'); }); });
+        w.addEventListener('click', async (e) => {
+          const b = e.target.closest('[data-r]');
+          if (!b) return;
+          const text = parts[Number(b.dataset.i)];
+          if (b.dataset.r === 'copy') { toast((await copyText(text)) ? '已複製，可以貼到 LINE' : '無法複製', 'ok'); return; }
+          // 在點按的當下呼叫分享（iPhone 要求分享必須直接由點按觸發）
+          navigator.share({ text }).then(() => b.classList.add('done')).catch((err) => { if (err && err.name !== 'AbortError') toast('無法分享，請改用「複製」', 'error'); });
+        });
       }
     });
+  }
+
+  /**
+   * PDF：把排好版的報告放到頁面上，按「列印／存成 PDF」叫出列印畫面。
+   * iPhone：列印畫面右上角的分享按鈕可以存成 PDF 或傳到 LINE；電腦：目的地選「另存為 PDF」。
+   */
+  function showPdf(data, title) {
+    let root = document.getElementById('print-root');
+    if (!root) { root = document.createElement('div'); root.id = 'print-root'; document.body.appendChild(root); }
+    root.innerHTML = careReportHtml(data, { generated: todayStr() });
+    const old = document.title;
+    const done = () => { document.body.classList.remove('print-report'); document.title = old; window.removeEventListener('afterprint', done); };
+    return modal({
+      title: '📄 PDF 報告',
+      html: `<div class="report-preview">${root.innerHTML}</div>
+        <p class="muted small">按「列印／存成 PDF」後：<br>・iPhone：在列印畫面按右上角的分享按鈕，就能存成 PDF 或傳到 LINE。<br>・電腦：目的地選「另存為 PDF」。</p>
+        <div class="btn-row"><button type="button" class="btn btn-primary" data-r="print">🖨️ 列印／存成 PDF</button></div>`,
+      buttons: [{ id: 'cancel', label: '關閉' }],
+      onOpen: (w) => {
+        w.querySelector('[data-r=print]').addEventListener('click', () => {
+          document.body.classList.add('print-report');
+          document.title = title;          // 存成 PDF 時的預設檔名
+          window.addEventListener('afterprint', done);
+          window.print();   // print-report 只影響列印，不影響畫面；列印結束或關閉視窗時才移除
+        });
+      }
+    }).then(done);
   }
 
   const unsubs = [

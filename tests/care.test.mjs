@@ -89,3 +89,38 @@ test('文字摘要：重點統計、有用藥／沒用藥時的特別紀錄、�
   // 沒有藥物時也能產生
   assert.match(careReport(logs, careSettings({}), { from: '2026-11-19', to: '2026-11-25' }), /【特別紀錄】/);
 });
+
+test('分段：三個月附每日紀錄會分成幾段，每段不超過上限、不會把同一天拆開', async () => {
+  const { careReportData, careReportParts, careReportHtml, careReport } = await import('../js/utils/care.js');
+  const logs = [];
+  for (let i = 0; i < 92; i++) {
+    const d = new Date(Date.UTC(2026, 8, 1 + i)).toISOString().slice(0, 10);   // 9/1 起 92 天
+    logs.push({ date: d, meds: { concerta: { status: i % 9 ? 'taken' : 'skipped', note: i % 9 ? '' : '早上來不及' }, avamys: { status: 'taken' } },
+      mood: { score: 1 + (i % 5), note: `今天的心情紀錄第 ${i} 天，下課後跟同學玩得很開心` }, learning: { score: 1 + ((i + 2) % 5), note: '作業寫得比較慢' },
+      observed: { list: i % 4 ? [] : ['胃口不佳'] }, sleep: { bed: '21:40', wake: '06:45' } });
+  }
+  const data = careReportData(logs, cfg, { name: '小明', from: '2026-09-01', to: '2026-11-30', groupMed: 'concerta', daily: true });
+  const whole = careReport(logs, cfg, { name: '小明', from: '2026-09-01', to: '2026-11-30', groupMed: 'concerta', daily: true });
+  assert.ok(whole.length > 10000, String(whole.length));
+  const parts = careReportParts(data, 4500);
+  assert.ok(parts.length >= 3, String(parts.length));
+  parts.forEach((p, i) => {
+    assert.ok(p.length <= 4500, `${i}: ${p.length}`);
+    assert.ok(p.startsWith(`（${i + 1}/${parts.length}）`));
+    if (i > 0) assert.match(p.split('\n')[0], /【.*】/);                 // 每段開頭都知道是哪一部分（續）
+  });
+  assert.ok(parts[0].includes('【重點統計】'));
+  // 同一天的兩行一定在同一段
+  for (const p of parts) for (const [k, line] of p.split('\n').entries()) if (line.startsWith('　└')) assert.match(p.split('\n')[k - 1], /^\d+\/\d+（.）/);
+  // 每一天都在（每日紀錄 92 天）
+  const all = parts.join('\n');
+  const daysInDaily = all.slice(all.indexOf('【每日紀錄')).match(/^(（\d+\/\d+）)?\d+\/\d+（.）/gm).length;
+  assert.equal(daysInDaily, 91);   // 9/1～11/30 共 91 天（第 92 天在區間外）
+  // 短的不分段、沒有編號
+  assert.equal(careReportParts(careReportData(logs.slice(0, 3), cfg, { from: '2026-09-01', to: '2026-09-03', groupMed: 'concerta' })).length, 1);
+  assert.doesNotMatch(careReportParts(careReportData(logs.slice(0, 3), cfg, { from: '2026-09-01', to: '2026-09-03' }))[0], /^（1\//);
+  // PDF 用的 HTML：表格、會跳脫特殊字元
+  const html = careReportHtml(careReportData([{ date: '2026-09-01', mood: { score: 2, note: '<b>x</b>' } }], cfg, { from: '2026-09-01', to: '2026-09-01' }));
+  assert.match(html, /<table class="rp-table">/);
+  assert.match(html, /&lt;b&gt;x&lt;\/b&gt;/);
+});
